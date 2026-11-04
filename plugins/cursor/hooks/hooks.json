@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor sessionStart",
+        "timeout": 5
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor beforeSubmitPrompt",
+        "timeout": 5
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor preToolUse",
+        "timeout": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor postToolUse",
+        "timeout": 5
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor postToolUseFailure",
+        "timeout": 5
+      }
+    ],
+    "stop": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor stop",
+        "timeout": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "\"${CURSOR_PLUGIN_ROOT}\"/bin/timetrakkr hook cursor sessionEnd",
+        "timeout": 5
+      }
+    ]
+  }
+}

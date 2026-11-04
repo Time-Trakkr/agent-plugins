@@ -1,0 +1,20 @@
+{
+  "name": "timetrakkr",
+  "interface": {
+    "displayName": "Time Trakkr"
+  },
+  "plugins": [
+    {
+      "name": "timetrakkr",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

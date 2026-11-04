@@ -1,0 +1,8 @@
+{
+  "name": "timetrakkr",
+  "description": "Records how long the agent worked in a mapped repository and reports it to Time Trakkr for review",
+  "version": "1.0.0",
+  "author": {
+    "name": "Time Trakkr"
+  }
+}
