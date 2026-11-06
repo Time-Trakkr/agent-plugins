@@ -1,6 +1,6 @@
 {
   "name": "@timetrakkr/cli",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Records how long a coding agent worked and reports it to Time Trakkr",
   "keywords": [
     "time-tracking",
@@ -13,7 +13,7 @@
   "homepage": "https://timetrakkr.com",
   "license": "MIT",
   "bin": {
-    "timetrakkr": "./dist/timetrakkr.cjs"
+    "timetrakkr": "dist/timetrakkr.cjs"
   },
   "files": [
     "dist/timetrakkr.cjs"

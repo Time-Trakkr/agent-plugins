@@ -2724,7 +2724,7 @@ async function renewSignIn(home, now, rejected, signal) {
 }
 
 // packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.0.1" : "development";
+var CLI_VERSION = true ? "1.0.2" : "development";
 
 // packages/agent-cli/src/main.ts
 var USAGE = [
