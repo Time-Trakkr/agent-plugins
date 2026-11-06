@@ -2723,6 +2723,9 @@ async function renewSignIn(home, now, rejected, signal) {
   }
 }
 
+// packages/agent-cli/src/version.ts
+var CLI_VERSION = true ? "1.0.1" : "development";
+
 // packages/agent-cli/src/main.ts
 var USAGE = [
   "Usage: timetrakkr <command>",
@@ -2745,7 +2748,8 @@ var USAGE = [
   "                      person or a team. Sent with the session for comparison; never",
   "                      billed. --days and --weeks also work and can be combined:",
   `                      a day is ${HOURS_PER_DAY} hours and a week is ${DAYS_PER_WEEK} days.`,
-  "  hook <host> <event> Called by an agent host; reads the hook payload on stdin"
+  "  hook <host> <event> Called by an agent host; reads the hook payload on stdin",
+  "  --version           Print the version"
 ].join("\n");
 async function runHook(rt, host, event) {
   if (!isHost(host) || !event) {
@@ -2790,6 +2794,11 @@ async function run(argv, rt) {
         return switchTracking(rt, false);
       case "estimate":
         return recordEstimate(rt, rest);
+      case "version":
+      case "--version":
+      case "-v":
+        rt.out(CLI_VERSION);
+        return 0;
       case "help":
       case "--help":
       case "-h":

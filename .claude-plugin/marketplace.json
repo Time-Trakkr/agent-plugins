@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Time Trakkr plugins for coding agents",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   "plugins": [
     {
       "name": "timetrakkr",
       "source": "./plugins/claude-code",
       "description": "Records how long the agent worked in a mapped repository and reports it to Time Trakkr for review",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "productivity"
     }
   ]

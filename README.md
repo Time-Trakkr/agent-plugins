@@ -2,7 +2,7 @@
 
 Records how long your coding agent worked in a repository your workspace has
 connected, and reports it to [Time Trakkr](https://timetrakkr.com), where it
-waits on your timesheet. Version 1.0.0.
+waits on your timesheet. Version 1.0.1.
 
 This repository is generated. Do not edit it here: changes are made in the
 Time Trakkr repository and published on release.
@@ -49,7 +49,7 @@ If you closed that window, sign in from inside the session:
 
 - Claude Code: `/timetrakkr:login`
 - Codex: ask it to use the `timetrakkr-login` skill, or run
-  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.0.0/bin/timetrakkr login`
+  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.0.1/bin/timetrakkr login`
 - Cursor: `/timetrakkr-login`
 
 Your workspace on a custom domain or on staging: sign in with
@@ -61,3 +61,7 @@ Each plugin's README says exactly what is recorded, what is sent and what
 never is. In short: turn start and end times, the repository's remote and
 branch for a connected repository, and token counts. Never your prompts, the
 agent's replies, tool input or output, or file contents.
+
+## License
+
+MIT. See `LICENSE`; each plugin carries a copy.
