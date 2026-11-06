@@ -2,7 +2,7 @@
 
 Records how long your coding agent worked in a repository your workspace has
 connected, and reports it to [Time Trakkr](https://timetrakkr.com), where it
-waits on your timesheet. Version 1.0.2.
+waits on your timesheet. Version 1.1.0.
 
 This repository is generated. Do not edit it here: changes are made in the
 Time Trakkr repository and published on release.
@@ -49,7 +49,7 @@ If you closed that window, sign in from inside the session:
 
 - Claude Code: `/timetrakkr:login`
 - Codex: ask it to use the `timetrakkr-login` skill, or run
-  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.0.2/bin/timetrakkr login`
+  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.1.0/bin/timetrakkr login`
 - Cursor: `/timetrakkr-login`
 
 Your workspace on a custom domain or on staging: sign in with

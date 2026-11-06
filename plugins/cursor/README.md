@@ -4,30 +4,13 @@ Records how long Cursor's agent worked in a repository and reports it to Time
 Trakkr, where it waits on your timesheet for you to review. Nothing becomes a
 time entry on its own.
 
-## Not verified against a real Cursor session
+## Status
 
-**Read this first.** This plugin was written from Cursor's documentation
-(`https://cursor.com/docs/hooks` and `/docs/plugins`, read 2026-10-01). It has
-never run inside Cursor: the machine it was built on had no signed-in Cursor,
-and a headless `cursor-agent` run stops at "Authentication required" before
-any hook fires.
+Cursor support is being verified. Until then, if a session records nothing,
+check `~/.timetrakkr/hook.log` and run `timetrakkr status` in the repository.
 
-The CLI behind it is the same one the Claude Code and Codex plugins use, and
-is tested. What is unproven is everything specific to Cursor:
-
-- that the hook payloads carry the fields the documentation lists
-  (`conversation_id`, `workspace_roots`, `model`, `status` on `stop`,
-  `duration` on `postToolUse`)
-- that `conversation_id` is the same on every hook of a session
-- that Cursor accepts a hook that prints nothing as "carry on"
-- that `${CURSOR_PLUGIN_ROOT}` resolves in a plugin's hook commands
-- that the skill loads from the plugin, and that `timetrakkr` is found when
-  the agent runs it
-- that hooks fire in `cursor-agent`, the CLI, as they do in the editor
-
-Treat it as not supported until someone has run it once and checked that time
-arrives. If it records nothing, that is the likeliest reason, and
-`~/.timetrakkr/hook.log` and `timetrakkr status` are where to look.
+The command-line tool behind this plugin is the same one the Claude Code and
+Codex plugins use.
 
 ## What is measured
 

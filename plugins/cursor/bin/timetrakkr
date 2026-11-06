@@ -3,6 +3,7 @@
 
 // packages/agent-cli/src/cli.ts
 var import_node_child_process2 = require("node:child_process");
+var import_promises = require("node:readline/promises");
 
 // packages/agent-cli/src/browser.ts
 var OPENABLE = /^https?:\/\/[A-Za-z0-9._~:/?&=%-]+$/;
@@ -714,6 +715,18 @@ var DEFAULT_MODEL_PRICES = [
 var FORMAT = new RegExp("\\p{Cf}", "gu");
 var CONTROL = new RegExp("\\p{Cc}", "gu");
 
+// packages/core/src/agent-time/check-in-clock.ts
+var CHECK_IN_BOUNDS = {
+  /** A longer silence between check-ins counts 0 and closes the turn. */
+  gapSeconds: 900,
+  /** No turn counts for longer than this. */
+  turnCapSeconds: 14400,
+  /** Check-in sessions one person may have open at once. */
+  maxOpenSessions: 20
+};
+var GAP_MS = CHECK_IN_BOUNDS.gapSeconds * 1e3;
+var TURN_CAP_MS = CHECK_IN_BOUNDS.turnCapSeconds * 1e3;
+
 // packages/agent-cli/src/git.ts
 var import_node_child_process = require("node:child_process");
 function git(root, env, args) {
@@ -908,6 +921,179 @@ function resolveContext(local, rules, credentials) {
   };
 }
 
+// packages/agent-cli/src/cursor-setup.ts
+var import_node_fs5 = require("node:fs");
+var import_node_os2 = require("node:os");
+var import_node_path4 = require("node:path");
+var GATE_MARK = "timetrakkr-cursor-full-turns";
+var CURSOR_GATE_COMMAND = `node -e 0 ${GATE_MARK}`;
+var CURSOR_GATE_EVENTS = ["beforeSubmitPrompt", "stop"];
+var BACKUP_SUFFIX = ".timetrakkr-backup";
+function cursorDir(env) {
+  return (0, import_node_path4.join)(env.HOME || (0, import_node_os2.homedir)(), ".cursor");
+}
+var isGate = (entry) => isRecord(entry) && typeof entry.command === "string" && entry.command.trim().split(/\s+/).at(-1) === GATE_MARK;
+function parse(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { why: "it is not valid JSON" };
+  }
+  if (!isRecord(value)) {
+    return { why: "it is not a JSON object" };
+  }
+  const hooks = value.hooks ?? {};
+  if (!isRecord(hooks)) {
+    return { why: '"hooks" is not an object' };
+  }
+  for (const [event, entries] of Object.entries(hooks)) {
+    if (!Array.isArray(entries)) {
+      return { why: `"hooks.${event}" is not a list` };
+    }
+  }
+  return { file: { ...value, hooks } };
+}
+function readCursorHooks(env) {
+  const dir = cursorDir(env);
+  if (!(0, import_node_fs5.existsSync)(dir)) {
+    return { kind: "no-cursor" };
+  }
+  const path = (0, import_node_path4.join)(dir, "hooks.json");
+  let text;
+  try {
+    text = (0, import_node_fs5.readFileSync)(path, "utf8");
+  } catch {
+    return { kind: "missing", path };
+  }
+  const parsed = parse(text);
+  if ("why" in parsed) {
+    return { kind: "invalid", path, why: parsed.why };
+  }
+  const missing = CURSOR_GATE_EVENTS.filter(
+    (event) => !(parsed.file.hooks[event] ?? []).some(isGate)
+  );
+  return { kind: "ok", path, file: parsed.file, missing };
+}
+function write(path, file) {
+  const temporary = `${path}.timetrakkr-tmp`;
+  (0, import_node_fs5.writeFileSync)(temporary, `${JSON.stringify(file, null, 2)}
+`);
+  (0, import_node_fs5.renameSync)(temporary, path);
+}
+function added(file, events) {
+  const hooks = { ...file.hooks };
+  for (const event of events) {
+    hooks[event] = [...hooks[event] ?? [], { command: CURSOR_GATE_COMMAND }];
+  }
+  return { ...file, version: file.version ?? 1, hooks };
+}
+function removed(file) {
+  const hooks = {};
+  for (const [event, entries] of Object.entries(file.hooks)) {
+    const kept = entries.filter((entry) => !isGate(entry));
+    if (kept.length > 0 || entries.length === 0) {
+      hooks[event] = kept;
+    }
+  }
+  return { ...file, hooks };
+}
+function preview(events) {
+  return events.map((event) => `  "${event}": [{ "command": "${CURSOR_GATE_COMMAND}" }]`);
+}
+function refuse(rt, path, why) {
+  rt.err(
+    `timetrakkr: ${path} cannot be read safely: ${why}. Fix or move it, then run this again. Nothing was changed.`
+  );
+  return 1;
+}
+async function confirmed(rt, args, path) {
+  if (args.includes("--yes")) {
+    return true;
+  }
+  const answer = await rt.ask(`Add them to ${path}? [y/N] `);
+  if (answer === null) {
+    rt.err('timetrakkr: nobody to ask. Run "timetrakkr cursor setup --yes" to add them.');
+    return false;
+  }
+  return /^y(es)?$/i.test(answer.trim());
+}
+async function setUp(rt, args, hooks) {
+  if (hooks.kind === "invalid") {
+    return refuse(rt, hooks.path, hooks.why);
+  }
+  if (hooks.kind === "no-cursor") {
+    rt.err("timetrakkr: Cursor is not installed here (no ~/.cursor). Nothing was changed.");
+    return 1;
+  }
+  const file = hooks.kind === "ok" ? hooks.file : { version: 1, hooks: {} };
+  const missing = hooks.kind === "ok" ? hooks.missing : [...CURSOR_GATE_EVENTS];
+  if (missing.length === 0) {
+    rt.out(`Cursor full-turn hooks are already set up in ${hooks.path}.`);
+    return 0;
+  }
+  rt.out(
+    [
+      "The Cursor CLI runs the Time Trakkr plugin\u2019s prompt and stop hooks only when your own",
+      "hooks.json defines those events too. Without them, a turn counts from its first tool call",
+      "to its last. These entries do nothing themselves; they let Cursor run the plugin\u2019s hooks:",
+      "",
+      ...preview(missing),
+      "",
+      `They go in ${hooks.path}, next to anything already there.`
+    ].join("\n")
+  );
+  if (!await confirmed(rt, args, hooks.path)) {
+    rt.out("Nothing was changed.");
+    return 1;
+  }
+  if (hooks.kind === "ok") {
+    (0, import_node_fs5.copyFileSync)(hooks.path, `${hooks.path}${BACKUP_SUFFIX}`);
+  }
+  write(hooks.path, added(file, missing));
+  rt.out(
+    hooks.kind === "ok" ? `Added. The file as it was is at ${hooks.path}${BACKUP_SUFFIX}. Undo with "timetrakkr cursor setup --undo".` : `Added. Undo with "timetrakkr cursor setup --undo".`
+  );
+  return 0;
+}
+function undo(rt, hooks) {
+  if (hooks.kind === "invalid") {
+    return refuse(rt, hooks.path, hooks.why);
+  }
+  if (hooks.kind !== "ok" || hooks.missing.length === CURSOR_GATE_EVENTS.length) {
+    rt.out("Nothing to undo: there are no Time Trakkr entries in ~/.cursor/hooks.json.");
+    return 0;
+  }
+  write(hooks.path, removed(hooks.file));
+  rt.out(`Removed the Time Trakkr entries from ${hooks.path}.`);
+  return 0;
+}
+async function cursorCommand(rt, args) {
+  if (args[0] !== "setup") {
+    rt.err("Usage: timetrakkr cursor setup [--yes] [--undo]");
+    return 1;
+  }
+  const hooks = readCursorHooks(rt.env);
+  return args.includes("--undo") ? undo(rt, hooks) : setUp(rt, args.slice(1), hooks);
+}
+function cursorStatusLine(env) {
+  const hooks = readCursorHooks(env);
+  switch (hooks.kind) {
+    case "no-cursor":
+      return null;
+    case "invalid":
+      return `Cursor:     ${hooks.path} cannot be read (${hooks.why})`;
+    case "ok":
+      if (hooks.missing.length === 0) {
+        return "Cursor:     whole turns counted (timetrakkr cursor setup is done)";
+      }
+      break;
+    default:
+      break;
+  }
+  return 'Cursor:     only the time from the first to the last tool call of each turn is counted in the CLI; run "timetrakkr cursor setup" to count whole turns';
+}
+
 // packages/agent-cli/src/day.ts
 var pad = (n) => String(n).padStart(2, "0");
 function localDay(at) {
@@ -916,7 +1102,7 @@ function localDay(at) {
 }
 
 // packages/agent-cli/src/drop.ts
-var import_node_fs7 = require("node:fs");
+var import_node_fs8 = require("node:fs");
 
 // packages/agent-cli/src/identity.ts
 var import_node_crypto4 = require("node:crypto");
@@ -943,7 +1129,7 @@ function ownedBy(session, identities) {
 }
 
 // packages/agent-cli/src/store.ts
-var import_node_fs5 = require("node:fs");
+var import_node_fs6 = require("node:fs");
 var EVENT_KINDS = ["turn_start", "activity", "wait", "turn_end"];
 function parseEvent(line) {
   try {
@@ -966,7 +1152,7 @@ function appendEvent(home, host, sessionId, event) {
 function readLog(home, host, sessionId) {
   let raw;
   try {
-    raw = (0, import_node_fs5.readFileSync)(logPath(home, host, sessionId));
+    raw = (0, import_node_fs6.readFileSync)(logPath(home, host, sessionId));
   } catch {
     return { events: [], bytes: 0 };
   }
@@ -975,7 +1161,7 @@ function readLog(home, host, sessionId) {
 }
 function logSize(home, host, sessionId) {
   try {
-    return (0, import_node_fs5.statSync)(logPath(home, host, sessionId)).size;
+    return (0, import_node_fs6.statSync)(logPath(home, host, sessionId)).size;
   } catch {
     return 0;
   }
@@ -992,7 +1178,7 @@ function writeMeta(home, meta) {
 }
 function sessionIdsOf(home, host) {
   try {
-    return (0, import_node_fs5.readdirSync)(hostDir(home, host)).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length)).filter(isSafeSessionId);
+    return (0, import_node_fs6.readdirSync)(hostDir(home, host)).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length)).filter(isSafeSessionId);
   } catch {
     return [];
   }
@@ -1005,15 +1191,15 @@ function listMetas(home) {
 function pruneSessions(home, before) {
   for (const meta of listMetas(home)) {
     if (meta.updatedAt < before) {
-      (0, import_node_fs5.rmSync)(metaPath(home, meta.host, meta.sessionId), { force: true });
-      (0, import_node_fs5.rmSync)(logPath(home, meta.host, meta.sessionId), { force: true });
-      (0, import_node_fs5.rmSync)(tokensPath(home, meta.host, meta.sessionId), { force: true });
+      (0, import_node_fs6.rmSync)(metaPath(home, meta.host, meta.sessionId), { force: true });
+      (0, import_node_fs6.rmSync)(logPath(home, meta.host, meta.sessionId), { force: true });
+      (0, import_node_fs6.rmSync)(tokensPath(home, meta.host, meta.sessionId), { force: true });
     }
   }
 }
 
 // packages/agent-cli/src/hosts/transcript.ts
-var import_node_fs6 = require("node:fs");
+var import_node_fs7 = require("node:fs");
 var NEWLINE = 10;
 function countOf(value, optional) {
   if (value === void 0 && optional) {
@@ -1022,17 +1208,17 @@ function countOf(value, optional) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 function readWholeLines(path, offset) {
-  const stat = (0, import_node_fs6.statSync)(path);
+  const stat = (0, import_node_fs7.statSync)(path);
   if (!stat.isFile() || stat.size < offset) {
     return null;
   }
   const length = Math.min(stat.size - offset, TRANSCRIPT_READ_BYTES);
   const buffer = Buffer.alloc(length);
-  const fd = (0, import_node_fs6.openSync)(path, "r");
+  const fd = (0, import_node_fs7.openSync)(path, "r");
   try {
-    (0, import_node_fs6.readSync)(fd, buffer, 0, length, offset);
+    (0, import_node_fs7.readSync)(fd, buffer, 0, length, offset);
   } finally {
-    (0, import_node_fs6.closeSync)(fd);
+    (0, import_node_fs7.closeSync)(fd);
   }
   const end = buffer.lastIndexOf(NEWLINE);
   if (end === -1) {
@@ -1279,7 +1465,7 @@ function dropPending(home, meta) {
     return;
   }
   if (size > meta.syncedBytes) {
-    (0, import_node_fs7.truncateSync)(logPath(home, host, sessionId), meta.syncedBytes);
+    (0, import_node_fs8.truncateSync)(logPath(home, host, sessionId), meta.syncedBytes);
     markTokensUnreliable(home, host, sessionId);
   }
   const last = readLog(home, host, sessionId).events.at(-1);
@@ -1507,7 +1693,7 @@ async function flush(options) {
 
 // packages/agent-cli/src/hosts/claude-code.ts
 function mapClaudeCodeHook(event, payload) {
-  if (!isRecord(payload)) {
+  if (!isRecord(payload) || "cursor_version" in payload) {
     return null;
   }
   const { session_id: sessionId, cwd } = payload;
@@ -1597,6 +1783,7 @@ function mapCodexHook(event, payload) {
 }
 
 // packages/agent-cli/src/hosts/cursor.ts
+var AUTO_MODEL = "default";
 function directoryOf(payload) {
   if (typeof payload.cwd === "string" && payload.cwd.length > 0) {
     return payload.cwd;
@@ -1614,13 +1801,15 @@ function mapCursorHook(event, payload) {
   if (!isSafeSessionId(sessionId) || cwd === null) {
     return null;
   }
-  const model = modelOf(payload.model);
+  const model = payload.model === AUTO_MODEL ? null : modelOf(payload.model);
+  const turnId = isSafeSessionId(payload.generation_id) ? payload.generation_id : void 0;
   const signal = (kind, durationMs) => ({
     type: "event",
     sessionId,
     cwd,
     event: durationMs === void 0 ? { kind } : { kind, durationMs },
-    ...model ? { model } : {}
+    ...model ? { model } : {},
+    ...turnId ? { turnId } : {}
   });
   switch (event) {
     case "sessionStart":
@@ -1642,7 +1831,7 @@ function mapCursorHook(event, payload) {
 }
 
 // packages/agent-cli/src/login-background.ts
-var import_node_fs8 = require("node:fs");
+var import_node_fs9 = require("node:fs");
 function lockAge(home, now) {
   const value = readJson(loginLockPath(home));
   return isRecord(value) && typeof value.at === "number" ? now - value.at : null;
@@ -1656,15 +1845,15 @@ function takeLoginLock(home, now) {
   const path = loginLockPath(home);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const fd = (0, import_node_fs8.openSync)(path, "wx", 384);
-      (0, import_node_fs8.writeSync)(fd, JSON.stringify({ at: now }));
-      (0, import_node_fs8.closeSync)(fd);
-      return () => (0, import_node_fs8.rmSync)(path, { force: true });
+      const fd = (0, import_node_fs9.openSync)(path, "wx", 384);
+      (0, import_node_fs9.writeSync)(fd, JSON.stringify({ at: now }));
+      (0, import_node_fs9.closeSync)(fd);
+      return () => (0, import_node_fs9.rmSync)(path, { force: true });
     } catch {
       if (loginInProgress(home, now)) {
         return null;
       }
-      (0, import_node_fs8.rmSync)(path, { force: true });
+      (0, import_node_fs9.rmSync)(path, { force: true });
     }
   }
   return null;
@@ -1680,7 +1869,7 @@ function writeLoginLink(home, link) {
   writePrivateJson(loginLinkPath(home), link);
 }
 function clearLoginLink(home) {
-  (0, import_node_fs8.rmSync)(loginLinkPath(home), { force: true });
+  (0, import_node_fs9.rmSync)(loginLinkPath(home), { force: true });
 }
 async function waitForLoginLink(home, now) {
   const deadline = Date.now() + LOGIN_LINK_WAIT_MS;
@@ -1870,6 +2059,7 @@ async function refresh(run2, existing) {
     identity: tracked && credentials.ok ? identitiesOf(home, credentials.credentials)[0] ?? null : base.identity ?? null,
     credentialId: tracked && credentials.ok ? credentials.credentials.cacheId : base.credentialId ?? null,
     model,
+    turnId: (hookSignal.type === "event" ? hookSignal.turnId : void 0) ?? base.turnId ?? null,
     updatedAt: at
   };
   if (tracked || existing) {
@@ -1905,12 +2095,32 @@ function readTokens(run2, meta) {
     modelFrom(hookSignal) ?? meta.model
   );
 }
+function unopenedTurn(home, host, hookSignal) {
+  if (hookSignal.type !== "event" || hookSignal.event.kind !== "activity" || hookSignal.turnId === void 0 || readMeta(home, host, hookSignal.sessionId)?.turnId === hookSignal.turnId) {
+    return null;
+  }
+  return { ...hookSignal, event: { kind: "turn_start" } };
+}
+function isOpenAlready(home, host, hookSignal) {
+  return hookSignal.type === "event" && hookSignal.event.kind === "turn_start" && hookSignal.turnId !== void 0 && readMeta(home, host, hookSignal.sessionId)?.turnId === hookSignal.turnId;
+}
 async function handleHook(rt, host, event, signal = AbortSignal.timeout(NETWORK_BUDGET_MS)) {
   const at = rt.now();
   const hookSignal = ADAPTERS[host](event, parsePayload(await rt.stdin()));
   if (!hookSignal) {
     return;
   }
+  const home = stateHome(rt.env);
+  if (isOpenAlready(home, host, hookSignal)) {
+    return;
+  }
+  const opened = unopenedTurn(home, host, hookSignal);
+  if (opened) {
+    await handleSignal(rt, host, opened, at, signal);
+  }
+  await handleSignal(rt, host, hookSignal, at, signal);
+}
+async function handleSignal(rt, host, hookSignal, at, signal) {
   const home = stateHome(rt.env);
   const auth = authSession(rt, home, at, signal);
   const credentials = reachesServer(hookSignal) ? await auth.fresh() : readCredentials(rt.env);
@@ -2059,6 +2269,10 @@ async function printStatus(rt) {
       lines.push(`Last error: ${oneLine(session.meta.lastError)}`);
     }
   }
+  const cursor = cursorStatusLine(rt.env);
+  if (cursor) {
+    lines.push(cursor);
+  }
   for (const line of lines) {
     rt.out(line);
   }
@@ -2066,14 +2280,14 @@ async function printStatus(rt) {
 }
 
 // packages/agent-cli/src/error-log.ts
-var import_node_fs9 = require("node:fs");
+var import_node_fs10 = require("node:fs");
 function logHookError(home, now, where, error) {
   try {
     const path = errorLogPath(home);
     const message = error instanceof Error ? error.message : "unexpected error";
     try {
-      if ((0, import_node_fs9.statSync)(path).size > ERROR_LOG_MAX_BYTES) {
-        (0, import_node_fs9.truncateSync)(path);
+      if ((0, import_node_fs10.statSync)(path).size > ERROR_LOG_MAX_BYTES) {
+        (0, import_node_fs10.truncateSync)(path);
       }
     } catch {
     }
@@ -2172,7 +2386,7 @@ function recordEstimate(rt, args) {
 
 // packages/agent-cli/src/login.ts
 var import_node_crypto5 = require("node:crypto");
-var import_node_os2 = require("node:os");
+var import_node_os3 = require("node:os");
 
 // packages/agent-cli/src/login-listener.ts
 var import_node_http = require("node:http");
@@ -2493,7 +2707,7 @@ async function signIn(rt, options, onLink = () => void 0) {
   const { endpoints } = discovered;
   const listener = await startLoginListener();
   try {
-    const clientName = `Time Trakkr CLI on ${(0, import_node_os2.hostname)()}`.slice(0, MAX_CLIENT_NAME);
+    const clientName = `Time Trakkr CLI on ${(0, import_node_os3.hostname)()}`.slice(0, MAX_CLIENT_NAME);
     const client = await registerClient(endpoints.register, clientName, listener.redirectUri, setup);
     if (!client.ok) {
       rt.err(`Could not start sign-in with ${origin}: ${client.error}.`);
@@ -2647,11 +2861,11 @@ async function logout(rt) {
 
 // packages/agent-cli/src/renew.ts
 var import_node_crypto6 = require("node:crypto");
-var import_node_fs10 = require("node:fs");
+var import_node_fs11 = require("node:fs");
 var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
 function tryTakeLock(path, owner) {
   try {
-    (0, import_node_fs10.writeFileSync)(path, owner, { flag: "wx", mode: 384 });
+    (0, import_node_fs11.writeFileSync)(path, owner, { flag: "wx", mode: 384 });
     return true;
   } catch {
     return false;
@@ -2659,8 +2873,8 @@ function tryTakeLock(path, owner) {
 }
 function clearStaleLock(path) {
   try {
-    if (Date.now() - (0, import_node_fs10.statSync)(path).mtimeMs > LOCK_STALE_MS) {
-      (0, import_node_fs10.rmSync)(path, { force: true });
+    if (Date.now() - (0, import_node_fs11.statSync)(path).mtimeMs > LOCK_STALE_MS) {
+      (0, import_node_fs11.rmSync)(path, { force: true });
     }
   } catch {
   }
@@ -2681,8 +2895,8 @@ async function takeLock(home, signal) {
 function releaseLock(home, owner) {
   const path = authLockPath(home);
   try {
-    if ((0, import_node_fs10.readFileSync)(path, "utf8") === owner) {
-      (0, import_node_fs10.rmSync)(path, { force: true });
+    if ((0, import_node_fs11.readFileSync)(path, "utf8") === owner) {
+      (0, import_node_fs11.rmSync)(path, { force: true });
     }
   } catch {
   }
@@ -2724,7 +2938,7 @@ async function renewSignIn(home, now, rejected, signal) {
 }
 
 // packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.0.2" : "development";
+var CLI_VERSION = true ? "1.1.0" : "development";
 
 // packages/agent-cli/src/main.ts
 var USAGE = [
@@ -2748,6 +2962,10 @@ var USAGE = [
   "                      person or a team. Sent with the session for comparison; never",
   "                      billed. --days and --weeks also work and can be combined:",
   `                      a day is ${HOURS_PER_DAY} hours and a week is ${DAYS_PER_WEEK} days.`,
+  "  cursor setup [--yes] [--undo]",
+  "                      Let the Cursor CLI report whole turns: adds two entries that do",
+  "                      nothing themselves to ~/.cursor/hooks.json, after showing them",
+  "                      and asking. --undo removes exactly those entries.",
   "  hook <host> <event> Called by an agent host; reads the hook payload on stdin",
   "  --version           Print the version"
 ].join("\n");
@@ -2794,6 +3012,8 @@ async function run(argv, rt) {
         return switchTracking(rt, false);
       case "estimate":
         return recordEstimate(rt, rest);
+      case "cursor":
+        return await cursorCommand(rt, rest);
       case "version":
       case "--version":
       case "-v":
@@ -2845,6 +3065,19 @@ function openBrowser(url) {
     detached(opener.command, opener.args);
   }
 }
+async function ask(question) {
+  if (!process.stdin.isTTY) {
+    return null;
+  }
+  const prompt = (0, import_promises.createInterface)({ input: process.stdin, output: process.stdout });
+  try {
+    return await prompt.question(question);
+  } catch {
+    return null;
+  } finally {
+    prompt.close();
+  }
+}
 var runtime = {
   env: process.env,
   cwd: process.cwd(),
@@ -2860,7 +3093,8 @@ var runtime = {
       detached(process.execPath, [script, ...args]);
     }
   },
-  openBrowser
+  openBrowser,
+  ask
 };
 var isHook = process.argv[2] === "hook";
 function exit(code) {

@@ -5,8 +5,8 @@ Trakkr, where it waits on your timesheet for you to review. Nothing becomes a
 time entry on its own.
 
 This covers Claude Code on your own machine; cloud sessions are not
-supported. There is a plugin for Codex in `plugins/codex`, and one for Cursor
-in `plugins/cursor` that has not yet been run against a real Cursor session.
+supported. There is a plugin for Codex in `plugins/codex`, and Cursor support
+is being verified in `plugins/cursor`.
 
 ## What is measured
 

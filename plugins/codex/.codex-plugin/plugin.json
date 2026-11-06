@@ -1,6 +1,6 @@
 {
   "name": "timetrakkr",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Records how long the agent worked in a mapped repository and reports it to Time Trakkr for review",
   "author": {
     "name": "Time Trakkr"
