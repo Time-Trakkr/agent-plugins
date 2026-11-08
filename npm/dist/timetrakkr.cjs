@@ -77,9 +77,67 @@ function isHost(value) {
   return HOSTS.some((host) => host === value);
 }
 
+// packages/agent-cli/src/cloud-init.ts
+var import_node_fs5 = require("node:fs");
+var import_node_path4 = require("node:path");
+
+// packages/agent-cli/src/credentials.ts
+var import_node_crypto2 = require("node:crypto");
+
+// packages/agent-cli/src/auth-store.ts
+var import_node_crypto = require("node:crypto");
+var import_node_fs2 = require("node:fs");
+
+// packages/agent-cli/src/paths.ts
+var import_node_os = require("node:os");
+var import_node_path = require("node:path");
+var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
+function isSafeSessionId(id) {
+  return typeof id === "string" && SAFE_ID.test(id);
+}
+function stateHome(env) {
+  return env.TIMETRAKKR_HOME || (0, import_node_path.join)((0, import_node_os.homedir)(), ".timetrakkr");
+}
+function sessionsDir(home) {
+  return (0, import_node_path.join)(home, "sessions");
+}
+function hostDir(home, host) {
+  return (0, import_node_path.join)(sessionsDir(home), host);
+}
+function logPath(home, host, sessionId) {
+  return (0, import_node_path.join)(hostDir(home, host), `${sessionId}.jsonl`);
+}
+function metaPath(home, host, sessionId) {
+  return (0, import_node_path.join)(hostDir(home, host), `${sessionId}.json`);
+}
+function tokensPath(home, host, sessionId) {
+  return (0, import_node_path.join)(hostDir(home, host), `${sessionId}.tokens`);
+}
+function authPath(home) {
+  return (0, import_node_path.join)(home, "auth.json");
+}
+function loginLockPath(home) {
+  return (0, import_node_path.join)(home, "login.lock");
+}
+function loginLinkPath(home) {
+  return (0, import_node_path.join)(home, "login-link.json");
+}
+function signInPromptPath(home) {
+  return (0, import_node_path.join)(home, "sign-in-prompt.json");
+}
+function authLockPath(home) {
+  return (0, import_node_path.join)(home, "auth.lock");
+}
+function configCachePath(home) {
+  return (0, import_node_path.join)(home, "config.json");
+}
+function errorLogPath(home) {
+  return (0, import_node_path.join)(home, "hook.log");
+}
+
 // packages/agent-cli/src/private-fs.ts
 var import_node_fs = require("node:fs");
-var import_node_path = require("node:path");
+var import_node_path2 = require("node:path");
 var DIR_MODE = 448;
 var FILE_MODE = 384;
 function ensurePrivateDir(dir) {
@@ -89,14 +147,14 @@ function ensurePrivateDir(dir) {
   }
 }
 function writePrivateJson(path, value) {
-  ensurePrivateDir((0, import_node_path.dirname)(path));
+  ensurePrivateDir((0, import_node_path2.dirname)(path));
   const temporary = `${path}.${process.pid}.tmp`;
   (0, import_node_fs.writeFileSync)(temporary, `${JSON.stringify(value)}
 `, { mode: FILE_MODE });
   (0, import_node_fs.renameSync)(temporary, path);
 }
 function appendPrivateLine(path, line) {
-  ensurePrivateDir((0, import_node_path.dirname)(path));
+  ensurePrivateDir((0, import_node_path2.dirname)(path));
   (0, import_node_fs.appendFileSync)(path, `${line}
 `, { mode: FILE_MODE });
 }
@@ -109,191 +167,6 @@ function readJson(path) {
 }
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// packages/agent-cli/src/text.ts
-var MAX_LINE = 200;
-function oneLine(text, max = MAX_LINE) {
-  const flat = text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
-  return flat.slice(0, max);
-}
-
-// packages/agent-cli/src/api.ts
-var RETRYABLE_STATUSES = /* @__PURE__ */ new Set([401, 403, 408, 425, 429]);
-var MAX_ERROR_LENGTH = 200;
-var MEMBER_ID = /^[0-9a-f-]{36}$/i;
-async function request(credentials, method, path, signal, body) {
-  return fetch(`${credentials.baseUrl}${path}`, {
-    method,
-    signal,
-    // A redirect would hand the token to wherever it points.
-    redirect: "error",
-    headers: {
-      authorization: `Bearer ${credentials.token}`,
-      accept: "application/json",
-      ...body === void 0 ? {} : { "content-type": "application/json" }
-    },
-    body: body === void 0 ? void 0 : JSON.stringify(body)
-  });
-}
-async function readJsonBody(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-function failureText(status, body) {
-  const message = isRecord(body) && typeof body.message === "string" ? body.message : "";
-  const text = message ? `HTTP ${status}: ${message}` : `HTTP ${status}`;
-  return text.replace(/\s+/g, " ").slice(0, MAX_ERROR_LENGTH);
-}
-async function describeFailure(response) {
-  return failureText(response.status, await readJsonBody(response));
-}
-function disabledReason(body) {
-  const reason = isRecord(body) ? body.disabled_reason : null;
-  const message = isRecord(reason) && typeof reason.message === "string" ? reason.message : "";
-  return oneLine(message) || null;
-}
-function describeThrown(error) {
-  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-    return "timed out";
-  }
-  return "no connection";
-}
-function parseBlocked(value) {
-  const { id, remote_sha256: remoteSha256, branch_pattern: branchPattern } = value;
-  if (typeof id !== "string" || typeof remoteSha256 !== "string" || !/^[0-9a-f]{64}$/.test(remoteSha256) || branchPattern !== null && typeof branchPattern !== "string") {
-    return null;
-  }
-  return { id, blocked: true, branchPattern, remoteSha256 };
-}
-function parseMapping(value) {
-  if (!isRecord(value)) {
-    return null;
-  }
-  if (value.blocked === true) {
-    return parseBlocked(value);
-  }
-  const {
-    id,
-    remote,
-    branch_pattern: branchPattern,
-    project_id: projectId,
-    task_id: taskId
-  } = value;
-  if (typeof id !== "string" || typeof remote !== "string" || typeof projectId !== "string" || typeof taskId !== "string" || branchPattern !== null && typeof branchPattern !== "string") {
-    return null;
-  }
-  const name = (key) => typeof value[key] === "string" ? oneLine(String(value[key])) : "";
-  return {
-    id,
-    remote,
-    branchPattern,
-    projectId,
-    taskId,
-    projectName: name("project_name"),
-    clientName: name("client_name") || null,
-    taskName: name("task_name")
-  };
-}
-function parseMappings(value) {
-  return Array.isArray(value) ? value.map(parseMapping).filter((rule) => rule !== null) : [];
-}
-async function fetchConfig(credentials, signal) {
-  try {
-    const response = await request(credentials, "GET", "/api/v1/agent/config", signal);
-    if (!response.ok) {
-      return { ok: false, error: await describeFailure(response), status: response.status };
-    }
-    const body = await readJsonBody(response);
-    if (!isRecord(body) || typeof body.enabled !== "boolean" || !isRecord(body.workspace)) {
-      return { ok: false, error: "unexpected response", status: response.status };
-    }
-    const name = typeof body.workspace.name === "string" ? body.workspace.name : "";
-    const memberId = isRecord(body.member) ? body.member.id : null;
-    return {
-      ok: true,
-      enabled: body.enabled,
-      workspaceName: name,
-      memberId: typeof memberId === "string" && MEMBER_ID.test(memberId) ? memberId : null,
-      // Only meaningful while off.
-      offReason: body.enabled ? null : disabledReason(body),
-      mappings: parseMappings(body.mappings)
-    };
-  } catch (error) {
-    return { ok: false, error: describeThrown(error) };
-  }
-}
-async function putSessionDay(credentials, body, signal) {
-  try {
-    const response = await request(credentials, "PUT", "/api/v1/agent/session_days", signal, body);
-    if (response.ok) {
-      return { kind: "ok" };
-    }
-    const answer = await readJsonBody(response);
-    const off = response.status === 403 ? disabledReason(answer) : null;
-    if (off) {
-      return { kind: "off", reason: off };
-    }
-    const error = failureText(response.status, answer);
-    const retry = response.status >= 500 || RETRYABLE_STATUSES.has(response.status);
-    return retry ? { kind: "retry", error, status: response.status } : { kind: "rejected", status: response.status, error };
-  } catch (error) {
-    return { kind: "retry", error: describeThrown(error) };
-  }
-}
-
-// packages/agent-cli/src/auth-store.ts
-var import_node_crypto = require("node:crypto");
-var import_node_fs2 = require("node:fs");
-
-// packages/agent-cli/src/paths.ts
-var import_node_os = require("node:os");
-var import_node_path2 = require("node:path");
-var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
-function isSafeSessionId(id) {
-  return typeof id === "string" && SAFE_ID.test(id);
-}
-function stateHome(env) {
-  return env.TIMETRAKKR_HOME || (0, import_node_path2.join)((0, import_node_os.homedir)(), ".timetrakkr");
-}
-function sessionsDir(home) {
-  return (0, import_node_path2.join)(home, "sessions");
-}
-function hostDir(home, host) {
-  return (0, import_node_path2.join)(sessionsDir(home), host);
-}
-function logPath(home, host, sessionId) {
-  return (0, import_node_path2.join)(hostDir(home, host), `${sessionId}.jsonl`);
-}
-function metaPath(home, host, sessionId) {
-  return (0, import_node_path2.join)(hostDir(home, host), `${sessionId}.json`);
-}
-function tokensPath(home, host, sessionId) {
-  return (0, import_node_path2.join)(hostDir(home, host), `${sessionId}.tokens`);
-}
-function authPath(home) {
-  return (0, import_node_path2.join)(home, "auth.json");
-}
-function loginLockPath(home) {
-  return (0, import_node_path2.join)(home, "login.lock");
-}
-function loginLinkPath(home) {
-  return (0, import_node_path2.join)(home, "login-link.json");
-}
-function signInPromptPath(home) {
-  return (0, import_node_path2.join)(home, "sign-in-prompt.json");
-}
-function authLockPath(home) {
-  return (0, import_node_path2.join)(home, "auth.lock");
-}
-function configCachePath(home) {
-  return (0, import_node_path2.join)(home, "config.json");
-}
-function errorLogPath(home) {
-  return (0, import_node_path2.join)(home, "hook.log");
 }
 
 // packages/agent-cli/src/auth-store.ts
@@ -329,13 +202,15 @@ function fingerprint(token) {
   return (0, import_node_crypto.createHash)("sha256").update(token).digest("hex").slice(0, 16);
 }
 
-// packages/agent-cli/src/credentials.ts
-var import_node_crypto2 = require("node:crypto");
-
 // packages/agent-cli/src/address.ts
 var DEFAULT_WORKSPACE_URL = "https://timetrakkr.com";
 function workspaceAddress(env, home, flag) {
   return flag ?? (env.TIMETRAKKR_URL?.trim() || readAuth(home)?.baseUrl || DEFAULT_WORKSPACE_URL);
+}
+
+// packages/agent-cli/src/cloud.ts
+function inClaudeCloud(env) {
+  return env.CLAUDE_CODE_REMOTE === "true";
 }
 
 // packages/agent-cli/src/credentials.ts
@@ -376,6 +251,22 @@ function fromEnvironment(token, rawUrl, home) {
       source: "environment",
       cacheId: digest(`${url.baseUrl}
 ${token}`)
+    }
+  };
+}
+function fromCloudProxy(rawUrl) {
+  const url = parseWorkspaceUrl(rawUrl ?? DEFAULT_WORKSPACE_URL, "TIMETRAKKR_URL");
+  if (!url.ok) {
+    return url;
+  }
+  return {
+    ok: true,
+    credentials: {
+      baseUrl: url.baseUrl,
+      token: "",
+      source: "cloud-proxy",
+      cacheId: digest(`${url.baseUrl}
+cloud-proxy`)
     }
   };
 }
@@ -421,128 +312,271 @@ function readCredentials(env) {
   const home = stateHome(env);
   const token = env.TIMETRAKKR_TOKEN?.trim();
   const rawUrl = env.TIMETRAKKR_URL?.trim() || void 0;
-  return token ? fromEnvironment(token, rawUrl, home) : fromSignIn(rawUrl, home);
+  if (token) {
+    return fromEnvironment(token, rawUrl, home);
+  }
+  return inClaudeCloud(env) ? fromCloudProxy(rawUrl) : fromSignIn(rawUrl, home);
 }
 
-// packages/agent-cli/src/auth-session.ts
-var sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-function authSession(rt, home, now, signal) {
-  let attempted = false;
-  async function waitForRenewal(oldToken, rejected, maxWaitMs) {
-    attempted = true;
-    rt.background(rejected === null ? ["refresh"] : ["refresh", "--rejected", rejected]);
-    const giveUpAt = Date.now() + maxWaitMs;
-    while (!signal.aborted && Date.now() < giveUpAt) {
-      const auth = readAuth(home);
-      if (!auth || isSignedOut(auth) || auth.accessToken !== oldToken) {
-        return;
-      }
-      await sleep(RENEW_POLL_MS);
+// packages/agent-cli/src/hooks-file.ts
+var import_node_fs3 = require("node:fs");
+function parseHooksFile(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { why: "it is not valid JSON" };
+  }
+  if (!isRecord(value)) {
+    return { why: "it is not a JSON object" };
+  }
+  const hooks = value.hooks ?? {};
+  if (!isRecord(hooks)) {
+    return { why: '"hooks" is not an object' };
+  }
+  for (const [event, entries] of Object.entries(hooks)) {
+    if (!Array.isArray(entries)) {
+      return { why: `"hooks.${event}" is not a list` };
     }
   }
-  async function fresh() {
-    const current = readCredentials(rt.env);
-    if (!current.ok || current.credentials.source !== "sign-in") {
-      return current;
+  return { file: { ...value, hooks } };
+}
+function writeHooksFile(path, file) {
+  const temporary = `${path}.timetrakkr-tmp`;
+  (0, import_node_fs3.writeFileSync)(temporary, `${JSON.stringify(file, null, 2)}
+`);
+  (0, import_node_fs3.renameSync)(temporary, path);
+}
+function withoutEntries(file, isOurs2) {
+  const hooks = {};
+  for (const [event, entries] of Object.entries(file.hooks)) {
+    const kept = entries.filter((entry) => !isOurs2(entry));
+    if (kept.length > 0 || entries.length === 0) {
+      hooks[event] = kept;
     }
-    const { expiresAt, token } = current.credentials;
-    if (expiresAt === void 0 || expiresAt - now > RENEW_MARGIN_MS) {
-      return current;
-    }
-    const stillValid = expiresAt > now;
-    await waitForRenewal(token, null, stillValid ? EARLY_RENEW_WAIT_MS : Number.POSITIVE_INFINITY);
-    return readCredentials(rt.env);
   }
-  async function renew(rejected) {
-    if (rejected.source !== "sign-in") {
+  return { ...file, hooks };
+}
+
+// packages/agent-cli/src/mapping.ts
+var import_node_fs4 = require("node:fs");
+var import_node_path3 = require("node:path");
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function findRepositoryRoot(cwd) {
+  let dir = cwd;
+  for (; ; ) {
+    if ((0, import_node_fs4.existsSync)((0, import_node_path3.join)(dir, ".git"))) {
+      return dir;
+    }
+    const parent = (0, import_node_path3.dirname)(dir);
+    if (parent === dir) {
       return null;
     }
-    const usable = (result) => result.ok && result.credentials.token !== rejected.token ? result.credentials : null;
-    const already = usable(readCredentials(rt.env));
-    if (already || attempted) {
-      return already;
-    }
-    await waitForRenewal(rejected.token, fingerprint(rejected.token), Number.POSITIVE_INFINITY);
-    return usable(readCredentials(rt.env));
+    dir = parent;
   }
-  return { fresh, renew };
+}
+function readMappingText(path) {
+  try {
+    if ((0, import_node_fs4.statSync)(path).size > MAPPING_MAX_BYTES) {
+      return null;
+    }
+    return (0, import_node_fs4.readFileSync)(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+function parseMapping(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { reason: `${MAPPING_FILE} is not valid JSON` };
+  }
+  if (!isRecord(value)) {
+    return { reason: `${MAPPING_FILE} must be an object with projectId and taskId` };
+  }
+  const { projectId, taskId } = value;
+  if (typeof projectId !== "string" || !UUID.test(projectId)) {
+    return { reason: `${MAPPING_FILE}: projectId must be a UUID` };
+  }
+  if (typeof taskId !== "string" || !UUID.test(taskId)) {
+    return { reason: `${MAPPING_FILE}: taskId must be a UUID` };
+  }
+  return { mapping: { projectId: projectId.toLowerCase(), taskId: taskId.toLowerCase() } };
+}
+function readMapping(root) {
+  const path = (0, import_node_path3.join)(root, MAPPING_FILE);
+  if (!(0, import_node_fs4.existsSync)(path)) {
+    return { missing: true };
+  }
+  const text = readMappingText(path);
+  return text === null ? { reason: `${MAPPING_FILE} could not be read` } : parseMapping(text);
 }
 
-// packages/agent-cli/src/config-cache.ts
-var import_node_fs3 = require("node:fs");
-function cacheKey(credentials) {
-  return credentials.cacheId;
+// packages/agent-cli/src/version.ts
+var CLI_VERSION = true ? "1.2.0" : "development";
+
+// packages/agent-cli/src/cloud-init.ts
+var MARK = "timetrakkr-cloud";
+var GUARD = '[ "$CLAUDE_CODE_REMOTE" = "true" ] || exit 0';
+var TIMEOUT_SECONDS = 60;
+var RELEASE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
+var SHELL_SAFE_URL = /^https?:\/\/[A-Za-z0-9.:[\]-]+(\/[A-Za-z0-9._~/-]*)?$/;
+var EVENTS = [
+  { event: "SessionStart" },
+  { event: "UserPromptSubmit" },
+  { event: "PreToolUse" },
+  { event: "PostToolUse" },
+  { event: "Notification", matcher: "permission_prompt" },
+  { event: "Stop" },
+  { event: "SessionEnd" }
+];
+var USAGE = "Usage: timetrakkr init --cloud [--pin <version>] [--url <address>] [--yes] [--undo]";
+function hookCommand(event, { pin, url }) {
+  const address = url ? `TIMETRAKKR_URL=${url} ` : "";
+  return `${GUARD}; NODE_USE_ENV_PROXY=1 ${address}npx -y @timetrakkr/cli@${pin} hook claude-code ${event} || true # ${MARK}`;
 }
-function readCache(home, key) {
-  const value = readJson(configCachePath(home));
-  if (!isRecord(value) || value.key !== key || typeof value.fetchedAt !== "number" || typeof value.enabled !== "boolean" || typeof value.workspaceName !== "string" || !Array.isArray(value.mappings)) {
-    return null;
-  }
-  return {
-    key,
-    fetchedAt: value.fetchedAt,
-    enabled: value.enabled,
-    workspaceName: value.workspaceName,
-    // Absent from an answer remembered by a version that did not keep it.
-    memberId: typeof value.memberId === "string" ? value.memberId : null,
-    offReason: typeof value.offReason === "string" ? value.offReason : null,
-    // Written by this program from validated rules, in an owner-only file.
-    mappings: value.mappings
-  };
-}
-function peekConfig(home, credentials, now) {
-  const cached = readCache(home, cacheKey(credentials));
-  if (!cached) {
-    return null;
-  }
-  const age = now - cached.fetchedAt;
-  return age >= 0 && age < CONFIG_TTL_MS ? {
-    ok: true,
-    enabled: cached.enabled,
-    workspaceName: cached.workspaceName,
-    memberId: cached.memberId,
-    offReason: cached.offReason,
-    mappings: cached.mappings
-  } : null;
-}
-function lastKnownMappings(home, credentials) {
-  return readCache(home, cacheKey(credentials))?.mappings ?? null;
-}
-function lastKnownMemberId(home, credentials) {
-  return readCache(home, cacheKey(credentials))?.memberId ?? null;
-}
-function forgetConfig(home) {
-  (0, import_node_fs3.rmSync)(configCachePath(home), { force: true });
-}
-async function getConfig(home, credentials, now, signal, renew = null) {
-  const cached = peekConfig(home, credentials, now);
-  if (cached) {
-    return cached;
-  }
-  let fresh = await fetchConfig(credentials, signal);
-  if (!fresh.ok && fresh.status === 401 && renew) {
-    const renewed = await renew(credentials);
-    if (renewed) {
-      fresh = await fetchConfig(renewed, signal);
-    }
-  }
-  if (fresh.ok) {
-    const entry = {
-      key: cacheKey(credentials),
-      fetchedAt: now,
-      enabled: fresh.enabled,
-      workspaceName: fresh.workspaceName,
-      memberId: fresh.memberId,
-      offReason: fresh.offReason,
-      mappings: fresh.mappings
+var isOurs = (group) => isRecord(group) && Array.isArray(group.hooks) && group.hooks.some(
+  (hook) => isRecord(hook) && typeof hook.command === "string" && hook.command.trim().endsWith(`# ${MARK}`)
+);
+function withOurs(file, choices) {
+  const base = withoutEntries(file, isOurs);
+  const hooks = { ...base.hooks };
+  for (const { event, matcher } of EVENTS) {
+    const hook = {
+      type: "command",
+      command: hookCommand(event, choices),
+      async: true,
+      timeout: TIMEOUT_SECONDS
     };
-    writePrivateJson(configCachePath(home), entry);
+    hooks[event] = [...hooks[event] ?? [], { ...matcher ? { matcher } : {}, hooks: [hook] }];
   }
-  return fresh;
+  return { ...base, hooks };
 }
-
-// packages/agent-cli/src/context.ts
-var import_node_crypto3 = require("node:crypto");
+function option(args, name) {
+  const at = args.indexOf(name);
+  return at === -1 ? void 0 : args[at + 1];
+}
+function readChoices(rt, args) {
+  const pin = option(args, "--pin") ?? CLI_VERSION;
+  if (!RELEASE.test(pin)) {
+    rt.err(
+      `timetrakkr: "${pin}" is not a release to pin. Pass --pin with a version such as 1.2.0. Nothing was changed.`
+    );
+    return null;
+  }
+  const raw = option(args, "--url");
+  if (raw === void 0) {
+    return { pin, url: null };
+  }
+  const url = parseWorkspaceUrl(raw, "--url");
+  if (!url.ok || !SHELL_SAFE_URL.test(url.baseUrl)) {
+    rt.err(
+      `timetrakkr: ${url.ok ? "--url has characters a hook cannot use" : url.reason}. Nothing was changed.`
+    );
+    return null;
+  }
+  return { pin, url: url.baseUrl };
+}
+function readSettings(path) {
+  if (!(0, import_node_fs5.existsSync)(path)) {
+    return { kind: "missing" };
+  }
+  const parsed = parseHooksFile((0, import_node_fs5.readFileSync)(path, "utf8"));
+  return "why" in parsed ? { kind: "invalid", why: parsed.why } : { kind: "ok", file: parsed.file };
+}
+async function confirmed(rt, args, path) {
+  if (args.includes("--yes")) {
+    return true;
+  }
+  const answer = await rt.ask(`Write them to ${path}? [y/N] `);
+  if (answer === null) {
+    rt.err("timetrakkr: nobody to ask. Run this again with --yes to write them.");
+    return false;
+  }
+  return /^y(es)?$/i.test(answer.trim());
+}
+function nextSteps(choices) {
+  const host = choices.url ? new URL(choices.url).host : "your workspace\u2019s address";
+  return [
+    "Next:",
+    "  1. Commit .claude/settings.json.",
+    "  2. In Claude Code on the web, edit the environment this repository uses and add a",
+    `     network secret for ${host}: header Authorization, prefix Bearer, and as the value`,
+    "     a personal access token with only the Agent time scope.",
+    "The token stays outside the session: the proxy adds it to requests for that host."
+  ];
+}
+async function setUp(rt, args, path) {
+  const choices = readChoices(rt, args);
+  if (!choices) {
+    return 1;
+  }
+  const settings = readSettings(path);
+  if (settings.kind === "invalid") {
+    rt.err(
+      `timetrakkr: ${path} cannot be read safely: ${settings.why}. Fix it, then run this again. Nothing was changed.`
+    );
+    return 1;
+  }
+  const file = settings.kind === "ok" ? settings.file : { hooks: {} };
+  const next = withOurs(file, choices);
+  if (settings.kind === "ok" && JSON.stringify(next) === JSON.stringify(file)) {
+    rt.out(`Claude Code cloud sessions are already set up in ${path}.`);
+    return 0;
+  }
+  rt.out(
+    [
+      "Claude Code cloud sessions do not load plugins, but they run the hooks in the",
+      "repository\u2019s .claude/settings.json. This adds one hook for each event the plugin uses.",
+      "Each exits at once unless it is running in a cloud session, so nothing is counted twice",
+      `on a laptop. Each runs @timetrakkr/cli@${choices.pin} in the background, for example:`,
+      "",
+      `  ${hookCommand("Stop", choices)}`,
+      "",
+      `They go in ${path}, next to anything already there.`
+    ].join("\n")
+  );
+  if (!await confirmed(rt, args, path)) {
+    rt.out("Nothing was changed.");
+    return 1;
+  }
+  (0, import_node_fs5.mkdirSync)((0, import_node_path4.join)(path, ".."), { recursive: true });
+  writeHooksFile(path, next);
+  rt.out(
+    ["Written.", ...nextSteps(choices), 'Undo with "timetrakkr init --cloud --undo".'].join("\n")
+  );
+  return 0;
+}
+function undo(rt, path) {
+  const settings = readSettings(path);
+  if (settings.kind === "invalid") {
+    rt.err(`timetrakkr: ${path} cannot be read safely: ${settings.why}. Nothing was changed.`);
+    return 1;
+  }
+  if (settings.kind === "missing" || !Object.values(settings.file.hooks).flat().some(isOurs)) {
+    rt.out(`Nothing to undo: there are no Time Trakkr hooks in ${path}.`);
+    return 0;
+  }
+  writeHooksFile(path, withoutEntries(settings.file, isOurs));
+  rt.out(`Removed the Time Trakkr hooks from ${path}.`);
+  return 0;
+}
+async function initCommand(rt, args) {
+  if (!args.includes("--cloud")) {
+    rt.err(USAGE);
+    return 1;
+  }
+  const root = findRepositoryRoot(rt.cwd);
+  if (!root) {
+    rt.err(
+      "timetrakkr: run this inside a git repository: cloud sessions run hooks from the repository. Nothing was changed."
+    );
+    return 1;
+  }
+  const path = (0, import_node_path4.join)(root, ".claude", "settings.json");
+  return args.includes("--undo") ? undo(rt, path) : setUp(rt, args, path);
+}
 
 // packages/core/src/agent-time/turn-clock.ts
 var KIND_ORDER = {
@@ -727,6 +761,261 @@ var CHECK_IN_BOUNDS = {
 var GAP_MS = CHECK_IN_BOUNDS.gapSeconds * 1e3;
 var TURN_CAP_MS = CHECK_IN_BOUNDS.turnCapSeconds * 1e3;
 
+// packages/agent-cli/src/text.ts
+var MAX_LINE = 200;
+function oneLine(text, max = MAX_LINE) {
+  const flat = text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  return flat.slice(0, max);
+}
+
+// packages/agent-cli/src/api.ts
+var RETRYABLE_STATUSES = /* @__PURE__ */ new Set([401, 403, 408, 425, 429]);
+var MAX_ERROR_LENGTH = 200;
+var MEMBER_ID = /^[0-9a-f-]{36}$/i;
+async function request(credentials, method, path, signal, body) {
+  return fetch(`${credentials.baseUrl}${path}`, {
+    method,
+    signal,
+    // A redirect would hand the token to wherever it points.
+    redirect: "error",
+    headers: {
+      // The proxy's own header would otherwise compete with an empty one.
+      ...credentials.source === "cloud-proxy" ? {} : { authorization: `Bearer ${credentials.token}` },
+      accept: "application/json",
+      ...body === void 0 ? {} : { "content-type": "application/json" }
+    },
+    body: body === void 0 ? void 0 : JSON.stringify(body)
+  });
+}
+async function readJsonBody(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+function failureText(status, body) {
+  const message = isRecord(body) && typeof body.message === "string" ? body.message : "";
+  const text = message ? `HTTP ${status}: ${message}` : `HTTP ${status}`;
+  return text.replace(/\s+/g, " ").slice(0, MAX_ERROR_LENGTH);
+}
+async function describeFailure(response) {
+  return failureText(response.status, await readJsonBody(response));
+}
+function disabledReason(body) {
+  const reason = isRecord(body) ? body.disabled_reason : null;
+  const message = isRecord(reason) && typeof reason.message === "string" ? reason.message : "";
+  return oneLine(message) || null;
+}
+function describeThrown(error) {
+  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    return "timed out";
+  }
+  return "no connection";
+}
+function parseBlocked(value) {
+  const { id, remote_sha256: remoteSha256, branch_pattern: branchPattern } = value;
+  if (typeof id !== "string" || typeof remoteSha256 !== "string" || !/^[0-9a-f]{64}$/.test(remoteSha256) || branchPattern !== null && typeof branchPattern !== "string") {
+    return null;
+  }
+  return { id, blocked: true, branchPattern, remoteSha256 };
+}
+function parseMapping2(value) {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (value.blocked === true) {
+    return parseBlocked(value);
+  }
+  const {
+    id,
+    remote,
+    branch_pattern: branchPattern,
+    project_id: projectId,
+    task_id: taskId
+  } = value;
+  if (typeof id !== "string" || typeof remote !== "string" || typeof projectId !== "string" || typeof taskId !== "string" || branchPattern !== null && typeof branchPattern !== "string") {
+    return null;
+  }
+  const name = (key) => typeof value[key] === "string" ? oneLine(String(value[key])) : "";
+  return {
+    id,
+    remote,
+    branchPattern,
+    projectId,
+    taskId,
+    projectName: name("project_name"),
+    clientName: name("client_name") || null,
+    taskName: name("task_name")
+  };
+}
+function parseMappings(value) {
+  return Array.isArray(value) ? value.map(parseMapping2).filter((rule) => rule !== null) : [];
+}
+async function fetchConfig(credentials, signal) {
+  try {
+    const response = await request(credentials, "GET", "/api/v1/agent/config", signal);
+    if (!response.ok) {
+      return { ok: false, error: await describeFailure(response), status: response.status };
+    }
+    const body = await readJsonBody(response);
+    if (!isRecord(body) || typeof body.enabled !== "boolean" || !isRecord(body.workspace)) {
+      return { ok: false, error: "unexpected response", status: response.status };
+    }
+    const name = typeof body.workspace.name === "string" ? body.workspace.name : "";
+    const memberId = isRecord(body.member) ? body.member.id : null;
+    return {
+      ok: true,
+      enabled: body.enabled,
+      workspaceName: name,
+      memberId: typeof memberId === "string" && MEMBER_ID.test(memberId) ? memberId : null,
+      // Only meaningful while off.
+      offReason: body.enabled ? null : disabledReason(body),
+      mappings: parseMappings(body.mappings)
+    };
+  } catch (error) {
+    return { ok: false, error: describeThrown(error) };
+  }
+}
+async function putSessionDay(credentials, body, signal) {
+  try {
+    const response = await request(credentials, "PUT", "/api/v1/agent/session_days", signal, body);
+    if (response.ok) {
+      return { kind: "ok" };
+    }
+    const answer = await readJsonBody(response);
+    const off = response.status === 403 ? disabledReason(answer) : null;
+    if (off) {
+      return { kind: "off", reason: off };
+    }
+    const error = failureText(response.status, answer);
+    const retry = response.status >= 500 || RETRYABLE_STATUSES.has(response.status);
+    return retry ? { kind: "retry", error, status: response.status } : { kind: "rejected", status: response.status, error };
+  } catch (error) {
+    return { kind: "retry", error: describeThrown(error) };
+  }
+}
+
+// packages/agent-cli/src/auth-session.ts
+var sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+function authSession(rt, home, now, signal) {
+  let attempted = false;
+  async function waitForRenewal(oldToken, rejected, maxWaitMs) {
+    attempted = true;
+    rt.background(rejected === null ? ["refresh"] : ["refresh", "--rejected", rejected]);
+    const giveUpAt = Date.now() + maxWaitMs;
+    while (!signal.aborted && Date.now() < giveUpAt) {
+      const auth = readAuth(home);
+      if (!auth || isSignedOut(auth) || auth.accessToken !== oldToken) {
+        return;
+      }
+      await sleep(RENEW_POLL_MS);
+    }
+  }
+  async function fresh() {
+    const current = readCredentials(rt.env);
+    if (!current.ok || current.credentials.source !== "sign-in") {
+      return current;
+    }
+    const { expiresAt, token } = current.credentials;
+    if (expiresAt === void 0 || expiresAt - now > RENEW_MARGIN_MS) {
+      return current;
+    }
+    const stillValid = expiresAt > now;
+    await waitForRenewal(token, null, stillValid ? EARLY_RENEW_WAIT_MS : Number.POSITIVE_INFINITY);
+    return readCredentials(rt.env);
+  }
+  async function renew(rejected) {
+    if (rejected.source !== "sign-in") {
+      return null;
+    }
+    const usable = (result) => result.ok && result.credentials.token !== rejected.token ? result.credentials : null;
+    const already = usable(readCredentials(rt.env));
+    if (already || attempted) {
+      return already;
+    }
+    await waitForRenewal(rejected.token, fingerprint(rejected.token), Number.POSITIVE_INFINITY);
+    return usable(readCredentials(rt.env));
+  }
+  return { fresh, renew };
+}
+
+// packages/agent-cli/src/config-cache.ts
+var import_node_fs6 = require("node:fs");
+function cacheKey(credentials) {
+  return credentials.cacheId;
+}
+function readCache(home, key) {
+  const value = readJson(configCachePath(home));
+  if (!isRecord(value) || value.key !== key || typeof value.fetchedAt !== "number" || typeof value.enabled !== "boolean" || typeof value.workspaceName !== "string" || !Array.isArray(value.mappings)) {
+    return null;
+  }
+  return {
+    key,
+    fetchedAt: value.fetchedAt,
+    enabled: value.enabled,
+    workspaceName: value.workspaceName,
+    // Absent from an answer remembered by a version that did not keep it.
+    memberId: typeof value.memberId === "string" ? value.memberId : null,
+    offReason: typeof value.offReason === "string" ? value.offReason : null,
+    // Written by this program from validated rules, in an owner-only file.
+    mappings: value.mappings
+  };
+}
+function peekConfig(home, credentials, now) {
+  const cached = readCache(home, cacheKey(credentials));
+  if (!cached) {
+    return null;
+  }
+  const age = now - cached.fetchedAt;
+  return age >= 0 && age < CONFIG_TTL_MS ? {
+    ok: true,
+    enabled: cached.enabled,
+    workspaceName: cached.workspaceName,
+    memberId: cached.memberId,
+    offReason: cached.offReason,
+    mappings: cached.mappings
+  } : null;
+}
+function lastKnownMappings(home, credentials) {
+  return readCache(home, cacheKey(credentials))?.mappings ?? null;
+}
+function lastKnownMemberId(home, credentials) {
+  return readCache(home, cacheKey(credentials))?.memberId ?? null;
+}
+function forgetConfig(home) {
+  (0, import_node_fs6.rmSync)(configCachePath(home), { force: true });
+}
+async function getConfig(home, credentials, now, signal, renew = null) {
+  const cached = peekConfig(home, credentials, now);
+  if (cached) {
+    return cached;
+  }
+  let fresh = await fetchConfig(credentials, signal);
+  if (!fresh.ok && fresh.status === 401 && renew) {
+    const renewed = await renew(credentials);
+    if (renewed) {
+      fresh = await fetchConfig(renewed, signal);
+    }
+  }
+  if (fresh.ok) {
+    const entry = {
+      key: cacheKey(credentials),
+      fetchedAt: now,
+      enabled: fresh.enabled,
+      workspaceName: fresh.workspaceName,
+      memberId: fresh.memberId,
+      offReason: fresh.offReason,
+      mappings: fresh.mappings
+    };
+    writePrivateJson(configCachePath(home), entry);
+  }
+  return fresh;
+}
+
+// packages/agent-cli/src/context.ts
+var import_node_crypto3 = require("node:crypto");
+
 // packages/agent-cli/src/git.ts
 var import_node_child_process = require("node:child_process");
 function git(root, env, args) {
@@ -753,61 +1042,6 @@ function repositoryRemote(root, env) {
 function currentBranch(root, env) {
   const branch = git(root, env, ["symbolic-ref", "--short", "-q", "HEAD"]);
   return branch !== null && branch.length <= MAX_BRANCH_LENGTH ? branch : null;
-}
-
-// packages/agent-cli/src/mapping.ts
-var import_node_fs4 = require("node:fs");
-var import_node_path3 = require("node:path");
-var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function findRepositoryRoot(cwd) {
-  let dir = cwd;
-  for (; ; ) {
-    if ((0, import_node_fs4.existsSync)((0, import_node_path3.join)(dir, ".git"))) {
-      return dir;
-    }
-    const parent = (0, import_node_path3.dirname)(dir);
-    if (parent === dir) {
-      return null;
-    }
-    dir = parent;
-  }
-}
-function readMappingText(path) {
-  try {
-    if ((0, import_node_fs4.statSync)(path).size > MAPPING_MAX_BYTES) {
-      return null;
-    }
-    return (0, import_node_fs4.readFileSync)(path, "utf8");
-  } catch {
-    return null;
-  }
-}
-function parseMapping2(text) {
-  let value;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return { reason: `${MAPPING_FILE} is not valid JSON` };
-  }
-  if (!isRecord(value)) {
-    return { reason: `${MAPPING_FILE} must be an object with projectId and taskId` };
-  }
-  const { projectId, taskId } = value;
-  if (typeof projectId !== "string" || !UUID.test(projectId)) {
-    return { reason: `${MAPPING_FILE}: projectId must be a UUID` };
-  }
-  if (typeof taskId !== "string" || !UUID.test(taskId)) {
-    return { reason: `${MAPPING_FILE}: taskId must be a UUID` };
-  }
-  return { mapping: { projectId: projectId.toLowerCase(), taskId: taskId.toLowerCase() } };
-}
-function readMapping(root) {
-  const path = (0, import_node_path3.join)(root, MAPPING_FILE);
-  if (!(0, import_node_fs4.existsSync)(path)) {
-    return { missing: true };
-  }
-  const text = readMappingText(path);
-  return text === null ? { reason: `${MAPPING_FILE} could not be read` } : parseMapping2(text);
 }
 
 // packages/agent-cli/src/context.ts
@@ -922,51 +1156,30 @@ function resolveContext(local, rules, credentials) {
 }
 
 // packages/agent-cli/src/cursor-setup.ts
-var import_node_fs5 = require("node:fs");
+var import_node_fs7 = require("node:fs");
 var import_node_os2 = require("node:os");
-var import_node_path4 = require("node:path");
+var import_node_path5 = require("node:path");
 var GATE_MARK = "timetrakkr-cursor-full-turns";
 var CURSOR_GATE_COMMAND = `node -e 0 ${GATE_MARK}`;
 var CURSOR_GATE_EVENTS = ["beforeSubmitPrompt", "stop"];
 var BACKUP_SUFFIX = ".timetrakkr-backup";
 function cursorDir(env) {
-  return (0, import_node_path4.join)(env.HOME || (0, import_node_os2.homedir)(), ".cursor");
+  return (0, import_node_path5.join)(env.HOME || (0, import_node_os2.homedir)(), ".cursor");
 }
 var isGate = (entry) => isRecord(entry) && typeof entry.command === "string" && entry.command.trim().split(/\s+/).at(-1) === GATE_MARK;
-function parse(text) {
-  let value;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return { why: "it is not valid JSON" };
-  }
-  if (!isRecord(value)) {
-    return { why: "it is not a JSON object" };
-  }
-  const hooks = value.hooks ?? {};
-  if (!isRecord(hooks)) {
-    return { why: '"hooks" is not an object' };
-  }
-  for (const [event, entries] of Object.entries(hooks)) {
-    if (!Array.isArray(entries)) {
-      return { why: `"hooks.${event}" is not a list` };
-    }
-  }
-  return { file: { ...value, hooks } };
-}
 function readCursorHooks(env) {
   const dir = cursorDir(env);
-  if (!(0, import_node_fs5.existsSync)(dir)) {
+  if (!(0, import_node_fs7.existsSync)(dir)) {
     return { kind: "no-cursor" };
   }
-  const path = (0, import_node_path4.join)(dir, "hooks.json");
+  const path = (0, import_node_path5.join)(dir, "hooks.json");
   let text;
   try {
-    text = (0, import_node_fs5.readFileSync)(path, "utf8");
+    text = (0, import_node_fs7.readFileSync)(path, "utf8");
   } catch {
     return { kind: "missing", path };
   }
-  const parsed = parse(text);
+  const parsed = parseHooksFile(text);
   if ("why" in parsed) {
     return { kind: "invalid", path, why: parsed.why };
   }
@@ -974,12 +1187,6 @@ function readCursorHooks(env) {
     (event) => !(parsed.file.hooks[event] ?? []).some(isGate)
   );
   return { kind: "ok", path, file: parsed.file, missing };
-}
-function write(path, file) {
-  const temporary = `${path}.timetrakkr-tmp`;
-  (0, import_node_fs5.writeFileSync)(temporary, `${JSON.stringify(file, null, 2)}
-`);
-  (0, import_node_fs5.renameSync)(temporary, path);
 }
 function added(file, events) {
   const hooks = { ...file.hooks };
@@ -989,14 +1196,7 @@ function added(file, events) {
   return { ...file, version: file.version ?? 1, hooks };
 }
 function removed(file) {
-  const hooks = {};
-  for (const [event, entries] of Object.entries(file.hooks)) {
-    const kept = entries.filter((entry) => !isGate(entry));
-    if (kept.length > 0 || entries.length === 0) {
-      hooks[event] = kept;
-    }
-  }
-  return { ...file, hooks };
+  return withoutEntries(file, isGate);
 }
 function preview(events) {
   return events.map((event) => `  "${event}": [{ "command": "${CURSOR_GATE_COMMAND}" }]`);
@@ -1007,7 +1207,7 @@ function refuse(rt, path, why) {
   );
   return 1;
 }
-async function confirmed(rt, args, path) {
+async function confirmed2(rt, args, path) {
   if (args.includes("--yes")) {
     return true;
   }
@@ -1018,7 +1218,7 @@ async function confirmed(rt, args, path) {
   }
   return /^y(es)?$/i.test(answer.trim());
 }
-async function setUp(rt, args, hooks) {
+async function setUp2(rt, args, hooks) {
   if (hooks.kind === "invalid") {
     return refuse(rt, hooks.path, hooks.why);
   }
@@ -1043,20 +1243,20 @@ async function setUp(rt, args, hooks) {
       `They go in ${hooks.path}, next to anything already there.`
     ].join("\n")
   );
-  if (!await confirmed(rt, args, hooks.path)) {
+  if (!await confirmed2(rt, args, hooks.path)) {
     rt.out("Nothing was changed.");
     return 1;
   }
   if (hooks.kind === "ok") {
-    (0, import_node_fs5.copyFileSync)(hooks.path, `${hooks.path}${BACKUP_SUFFIX}`);
+    (0, import_node_fs7.copyFileSync)(hooks.path, `${hooks.path}${BACKUP_SUFFIX}`);
   }
-  write(hooks.path, added(file, missing));
+  writeHooksFile(hooks.path, added(file, missing));
   rt.out(
     hooks.kind === "ok" ? `Added. The file as it was is at ${hooks.path}${BACKUP_SUFFIX}. Undo with "timetrakkr cursor setup --undo".` : `Added. Undo with "timetrakkr cursor setup --undo".`
   );
   return 0;
 }
-function undo(rt, hooks) {
+function undo2(rt, hooks) {
   if (hooks.kind === "invalid") {
     return refuse(rt, hooks.path, hooks.why);
   }
@@ -1064,7 +1264,7 @@ function undo(rt, hooks) {
     rt.out("Nothing to undo: there are no Time Trakkr entries in ~/.cursor/hooks.json.");
     return 0;
   }
-  write(hooks.path, removed(hooks.file));
+  writeHooksFile(hooks.path, removed(hooks.file));
   rt.out(`Removed the Time Trakkr entries from ${hooks.path}.`);
   return 0;
 }
@@ -1074,7 +1274,7 @@ async function cursorCommand(rt, args) {
     return 1;
   }
   const hooks = readCursorHooks(rt.env);
-  return args.includes("--undo") ? undo(rt, hooks) : setUp(rt, args.slice(1), hooks);
+  return args.includes("--undo") ? undo2(rt, hooks) : setUp2(rt, args.slice(1), hooks);
 }
 function cursorStatusLine(env) {
   const hooks = readCursorHooks(env);
@@ -1102,7 +1302,7 @@ function localDay(at) {
 }
 
 // packages/agent-cli/src/drop.ts
-var import_node_fs8 = require("node:fs");
+var import_node_fs10 = require("node:fs");
 
 // packages/agent-cli/src/identity.ts
 var import_node_crypto4 = require("node:crypto");
@@ -1129,7 +1329,7 @@ function ownedBy(session, identities) {
 }
 
 // packages/agent-cli/src/store.ts
-var import_node_fs6 = require("node:fs");
+var import_node_fs8 = require("node:fs");
 var EVENT_KINDS = ["turn_start", "activity", "wait", "turn_end"];
 function parseEvent(line) {
   try {
@@ -1152,7 +1352,7 @@ function appendEvent(home, host, sessionId, event) {
 function readLog(home, host, sessionId) {
   let raw;
   try {
-    raw = (0, import_node_fs6.readFileSync)(logPath(home, host, sessionId));
+    raw = (0, import_node_fs8.readFileSync)(logPath(home, host, sessionId));
   } catch {
     return { events: [], bytes: 0 };
   }
@@ -1161,7 +1361,7 @@ function readLog(home, host, sessionId) {
 }
 function logSize(home, host, sessionId) {
   try {
-    return (0, import_node_fs6.statSync)(logPath(home, host, sessionId)).size;
+    return (0, import_node_fs8.statSync)(logPath(home, host, sessionId)).size;
   } catch {
     return 0;
   }
@@ -1178,7 +1378,7 @@ function writeMeta(home, meta) {
 }
 function sessionIdsOf(home, host) {
   try {
-    return (0, import_node_fs6.readdirSync)(hostDir(home, host)).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length)).filter(isSafeSessionId);
+    return (0, import_node_fs8.readdirSync)(hostDir(home, host)).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length)).filter(isSafeSessionId);
   } catch {
     return [];
   }
@@ -1191,15 +1391,15 @@ function listMetas(home) {
 function pruneSessions(home, before) {
   for (const meta of listMetas(home)) {
     if (meta.updatedAt < before) {
-      (0, import_node_fs6.rmSync)(metaPath(home, meta.host, meta.sessionId), { force: true });
-      (0, import_node_fs6.rmSync)(logPath(home, meta.host, meta.sessionId), { force: true });
-      (0, import_node_fs6.rmSync)(tokensPath(home, meta.host, meta.sessionId), { force: true });
+      (0, import_node_fs8.rmSync)(metaPath(home, meta.host, meta.sessionId), { force: true });
+      (0, import_node_fs8.rmSync)(logPath(home, meta.host, meta.sessionId), { force: true });
+      (0, import_node_fs8.rmSync)(tokensPath(home, meta.host, meta.sessionId), { force: true });
     }
   }
 }
 
 // packages/agent-cli/src/hosts/transcript.ts
-var import_node_fs7 = require("node:fs");
+var import_node_fs9 = require("node:fs");
 var NEWLINE = 10;
 function countOf(value, optional) {
   if (value === void 0 && optional) {
@@ -1208,17 +1408,17 @@ function countOf(value, optional) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 function readWholeLines(path, offset) {
-  const stat = (0, import_node_fs7.statSync)(path);
+  const stat = (0, import_node_fs9.statSync)(path);
   if (!stat.isFile() || stat.size < offset) {
     return null;
   }
   const length = Math.min(stat.size - offset, TRANSCRIPT_READ_BYTES);
   const buffer = Buffer.alloc(length);
-  const fd = (0, import_node_fs7.openSync)(path, "r");
+  const fd = (0, import_node_fs9.openSync)(path, "r");
   try {
-    (0, import_node_fs7.readSync)(fd, buffer, 0, length, offset);
+    (0, import_node_fs9.readSync)(fd, buffer, 0, length, offset);
   } finally {
-    (0, import_node_fs7.closeSync)(fd);
+    (0, import_node_fs9.closeSync)(fd);
   }
   const end = buffer.lastIndexOf(NEWLINE);
   if (end === -1) {
@@ -1465,7 +1665,7 @@ function dropPending(home, meta) {
     return;
   }
   if (size > meta.syncedBytes) {
-    (0, import_node_fs8.truncateSync)(logPath(home, host, sessionId), meta.syncedBytes);
+    (0, import_node_fs10.truncateSync)(logPath(home, host, sessionId), meta.syncedBytes);
     markTokensUnreliable(home, host, sessionId);
   }
   const last = readLog(home, host, sessionId).events.at(-1);
@@ -1505,7 +1705,7 @@ function toPosted(summary, item) {
 function alreadyPosted(posted, next) {
   return posted !== void 0 && posted.activeSeconds === next.activeSeconds && posted.turnCount === next.turnCount && posted.firstTurnStartedAt === next.firstTurnStartedAt && posted.lastTurnEndedAt === next.lastTurnEndedAt && posted.projectId === next.projectId && posted.taskId === next.taskId && (posted.tokenTotal ?? 0) === (next.tokenTotal ?? 0);
 }
-function toBody(item, summary, withEstimate) {
+function toBody(item, summary, withEstimate, cloud) {
   const { meta, mapping } = item;
   const tokens = tokensForDay(item.tokens, summary.day);
   return {
@@ -1526,7 +1726,9 @@ function toBody(item, summary, withEstimate) {
     mapping_id: mapping.mappingId ?? null,
     // Left out, not zeroed, when the transcript could not be read.
     ...tokens ? { tokens } : {},
-    ...withEstimate && item.estimate ? { estimated_effort: { seconds: item.estimate.seconds, label: item.estimate.label } } : {}
+    ...withEstimate && item.estimate ? { estimated_effort: { seconds: item.estimate.seconds, label: item.estimate.label } } : {},
+    // Left out on a laptop, so a server that predates the field is unaffected.
+    ...cloud ? { runtime: "cloud" } : {}
   };
 }
 function needsAttention(home, meta, now, isOwn) {
@@ -1606,7 +1808,7 @@ function settle(home, work) {
     }
   }
 }
-async function postSession(home, credentials, item, signal, renew) {
+async function postSession(home, credentials, item, signal, renew, cloud) {
   let current = credentials;
   const posted = {};
   let failure = null;
@@ -1614,7 +1816,7 @@ async function postSession(home, credentials, item, signal, renew) {
   let sentEstimate = null;
   for (const summary of item.pending) {
     const withEstimate = summary === item.pending.at(-1);
-    const body = toBody(item, summary, withEstimate);
+    const body = toBody(item, summary, withEstimate, cloud);
     let result = await putSessionDay(current, body, signal);
     if (result.kind === "retry" && result.status === 401 && renew) {
       const renewed = await renew(current);
@@ -1680,7 +1882,14 @@ async function flush(options) {
       holdBack(home, [item], "timed out");
       continue;
     }
-    const posted = await postSession(home, current, item, signal, options.renew ?? null);
+    const posted = await postSession(
+      home,
+      current,
+      item,
+      signal,
+      options.renew ?? null,
+      inClaudeCloud(env)
+    );
     if (posted.off) {
       forgetConfig(home);
       dropAllPending(home, identities);
@@ -1831,7 +2040,7 @@ function mapCursorHook(event, payload) {
 }
 
 // packages/agent-cli/src/login-background.ts
-var import_node_fs9 = require("node:fs");
+var import_node_fs11 = require("node:fs");
 function lockAge(home, now) {
   const value = readJson(loginLockPath(home));
   return isRecord(value) && typeof value.at === "number" ? now - value.at : null;
@@ -1845,15 +2054,15 @@ function takeLoginLock(home, now) {
   const path = loginLockPath(home);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const fd = (0, import_node_fs9.openSync)(path, "wx", 384);
-      (0, import_node_fs9.writeSync)(fd, JSON.stringify({ at: now }));
-      (0, import_node_fs9.closeSync)(fd);
-      return () => (0, import_node_fs9.rmSync)(path, { force: true });
+      const fd = (0, import_node_fs11.openSync)(path, "wx", 384);
+      (0, import_node_fs11.writeSync)(fd, JSON.stringify({ at: now }));
+      (0, import_node_fs11.closeSync)(fd);
+      return () => (0, import_node_fs11.rmSync)(path, { force: true });
     } catch {
       if (loginInProgress(home, now)) {
         return null;
       }
-      (0, import_node_fs9.rmSync)(path, { force: true });
+      (0, import_node_fs11.rmSync)(path, { force: true });
     }
   }
   return null;
@@ -1869,7 +2078,7 @@ function writeLoginLink(home, link) {
   writePrivateJson(loginLinkPath(home), link);
 }
 function clearLoginLink(home) {
-  (0, import_node_fs9.rmSync)(loginLinkPath(home), { force: true });
+  (0, import_node_fs11.rmSync)(loginLinkPath(home), { force: true });
 }
 async function waitForLoginLink(home, now) {
   const deadline = Date.now() + LOGIN_LINK_WAIT_MS;
@@ -2207,6 +2416,9 @@ function sourceNote(credentials, home) {
   if (credentials.source === "sign-in") {
     return "signed in with timetrakkr login";
   }
+  if (credentials.source === "cloud-proxy") {
+    return "a Claude Code cloud session's network secret, added outside the VM";
+  }
   const stored = readAuth(home);
   return stored && !isSignedOut(stored) ? "TIMETRAKKR_TOKEN from the environment; the stored sign-in is not used" : "TIMETRAKKR_TOKEN from the environment";
 }
@@ -2247,6 +2459,7 @@ async function askConfig(credentials, renew, signal) {
   const renewed = await renew(credentials);
   return renewed ? fetchConfig(renewed, signal) : first;
 }
+var CLOUD_SHELL_HINT = "Cloud:      in a cloud session, run this as the hooks do: NODE_USE_ENV_PROXY=1 TIMETRAKKR_URL=<your workspace address> npx -y @timetrakkr/cli status";
 async function printStatus(rt) {
   const home = stateHome(rt.env);
   const signal = AbortSignal.timeout(COMMAND_NETWORK_MS);
@@ -2258,7 +2471,8 @@ async function printStatus(rt) {
   const context = resolveContext(local, rules, credentials);
   const lines = [`Directory:  ${rt.cwd}`];
   if (context.root) {
-    lines.push(`Repository: ${context.root}`);
+    const remote = local.remote === null ? null : normalizeRemote(local.remote);
+    lines.push(`Repository: ${remote ?? `${context.root} (no remote)`}`);
   }
   lines.push(...mappingLines(context), ...signInLines(credentials, config, home));
   const session = chooseSession(rt, home);
@@ -2268,6 +2482,9 @@ async function printStatus(rt) {
     if (session.meta.lastError) {
       lines.push(`Last error: ${oneLine(session.meta.lastError)}`);
     }
+  }
+  if (inClaudeCloud(rt.env) && config?.ok === false) {
+    lines.push(CLOUD_SHELL_HINT);
   }
   const cursor = cursorStatusLine(rt.env);
   if (cursor) {
@@ -2280,14 +2497,14 @@ async function printStatus(rt) {
 }
 
 // packages/agent-cli/src/error-log.ts
-var import_node_fs10 = require("node:fs");
+var import_node_fs12 = require("node:fs");
 function logHookError(home, now, where, error) {
   try {
     const path = errorLogPath(home);
     const message = error instanceof Error ? error.message : "unexpected error";
     try {
-      if ((0, import_node_fs10.statSync)(path).size > ERROR_LOG_MAX_BYTES) {
-        (0, import_node_fs10.truncateSync)(path);
+      if ((0, import_node_fs12.statSync)(path).size > ERROR_LOG_MAX_BYTES) {
+        (0, import_node_fs12.truncateSync)(path);
       }
     } catch {
     }
@@ -2861,11 +3078,11 @@ async function logout(rt) {
 
 // packages/agent-cli/src/renew.ts
 var import_node_crypto6 = require("node:crypto");
-var import_node_fs11 = require("node:fs");
+var import_node_fs13 = require("node:fs");
 var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
 function tryTakeLock(path, owner) {
   try {
-    (0, import_node_fs11.writeFileSync)(path, owner, { flag: "wx", mode: 384 });
+    (0, import_node_fs13.writeFileSync)(path, owner, { flag: "wx", mode: 384 });
     return true;
   } catch {
     return false;
@@ -2873,8 +3090,8 @@ function tryTakeLock(path, owner) {
 }
 function clearStaleLock(path) {
   try {
-    if (Date.now() - (0, import_node_fs11.statSync)(path).mtimeMs > LOCK_STALE_MS) {
-      (0, import_node_fs11.rmSync)(path, { force: true });
+    if (Date.now() - (0, import_node_fs13.statSync)(path).mtimeMs > LOCK_STALE_MS) {
+      (0, import_node_fs13.rmSync)(path, { force: true });
     }
   } catch {
   }
@@ -2895,8 +3112,8 @@ async function takeLock(home, signal) {
 function releaseLock(home, owner) {
   const path = authLockPath(home);
   try {
-    if ((0, import_node_fs11.readFileSync)(path, "utf8") === owner) {
-      (0, import_node_fs11.rmSync)(path, { force: true });
+    if ((0, import_node_fs13.readFileSync)(path, "utf8") === owner) {
+      (0, import_node_fs13.rmSync)(path, { force: true });
     }
   } catch {
   }
@@ -2937,11 +3154,8 @@ async function renewSignIn(home, now, rejected, signal) {
   }
 }
 
-// packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.1.0" : "development";
-
 // packages/agent-cli/src/main.ts
-var USAGE = [
+var USAGE2 = [
   "Usage: timetrakkr <command>",
   "",
   "  login [--url <address>] [--no-browser] [--detach]",
@@ -2966,6 +3180,11 @@ var USAGE = [
   "                      Let the Cursor CLI report whole turns: adds two entries that do",
   "                      nothing themselves to ~/.cursor/hooks.json, after showing them",
   "                      and asking. --undo removes exactly those entries.",
+  "  init --cloud [--pin <version>] [--url <address>] [--yes] [--undo]",
+  "                      Count Claude Code cloud sessions in this repository: writes",
+  "                      hooks to .claude/settings.json that run only in a cloud",
+  "                      session, after showing them and asking. Commit the file.",
+  "                      --undo removes exactly those hooks.",
   "  hook <host> <event> Called by an agent host; reads the hook payload on stdin",
   "  --version           Print the version"
 ].join("\n");
@@ -3014,6 +3233,8 @@ async function run(argv, rt) {
         return recordEstimate(rt, rest);
       case "cursor":
         return await cursorCommand(rt, rest);
+      case "init":
+        return await initCommand(rt, rest);
       case "version":
       case "--version":
       case "-v":
@@ -3022,10 +3243,10 @@ async function run(argv, rt) {
       case "help":
       case "--help":
       case "-h":
-        rt.out(USAGE);
+        rt.out(USAGE2);
         return 0;
       default:
-        rt.err(USAGE);
+        rt.err(USAGE2);
         return 1;
     }
   } catch (error) {

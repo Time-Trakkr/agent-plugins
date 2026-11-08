@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Time Trakkr plugins for coding agents",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "plugins": [
     {
       "name": "timetrakkr",
       "source": "./plugins/cursor",
       "description": "Records how long the agent worked in a mapped repository and reports it to Time Trakkr for review",
-      "version": "1.1.0"
+      "version": "1.2.0"
     }
   ]
 }

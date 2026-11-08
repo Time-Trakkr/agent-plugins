@@ -6,36 +6,84 @@ time entry on its own.
 
 ## Status
 
-Cursor support is being verified. Until then, if a session records nothing,
-check `~/.timetrakkr/hook.log` and run `timetrakkr status` in the repository.
+Supported in the Cursor editor's agent chat and in the Cursor CLI,
+`cursor-agent`, interactive and with `-p`. Both were checked end to end on
+macOS on 2026-11-06: the editor with Cursor 3.29.9 (plugin installed under
+`~/.cursor/plugins/local`, editor restarted), the CLI with `cursor-agent`
+2026.11.05. Windows has not been checked. If a session records nothing, check
+`~/.timetrakkr/hook.log` and run `timetrakkr status` in the repository.
 
 The command-line tool behind this plugin is the same one the Claude Code and
 Codex plugins use.
 
 ## What is measured
 
-A turn starts when you submit a prompt (`beforeSubmitPrompt`) and ends when
-the agent stops (`stop`), whether it completed, was aborted or hit an error.
-Agent time is the sum of turns. The time between turns is not counted.
+Agent time is the sum of turns, one per prompt. The time between turns is not
+counted.
+
+**In the editor, whole turns are counted.** The editor runs a plugin's
+`beforeSubmitPrompt` and `stop` hooks, so a turn runs from the prompt to the
+agent stopping. It also reports the real model rather than "default". Quitting
+the editor does not run `sessionEnd`; nothing depends on it, because each turn
+is sent when it ends.
+
+**In the Cursor CLI only part of each turn is counted** until `timetrakkr
+cursor setup` is run. The CLI runs a
+plugin's `preToolUse`, `postToolUse`, `postToolUseFailure`, `sessionStart` and
+`sessionEnd` hooks, but not its `beforeSubmitPrompt` or `stop` hooks: it runs
+those only when `~/.cursor/hooks.json` or the project's `.cursor/hooks.json`
+defines the same event. Every hook carries `generation_id`, new for each
+prompt, so a tool call from a generation not seen before opens its turn, and
+the turn closes at its last tool call. The agent's thinking before its first
+tool call and its answer after its last are left out, and a turn with no tool
+call counts nothing. In the sessions it was checked against, that was a
+little under half of the prompt-to-stop time.
+
+**`timetrakkr cursor setup` fixes that.** Run it once (`npx @timetrakkr/cli
+cursor setup` if `timetrakkr` is not on your `PATH`). It shows the two entries
+it will add to `~/.cursor/hooks.json` and asks first:
+
+```json
+"beforeSubmitPrompt": [{ "command": "node -e 0 timetrakkr-cursor-full-turns" }]
+"stop": [{ "command": "node -e 0 timetrakkr-cursor-full-turns" }]
+```
+
+They do nothing themselves; with them in place the CLI runs this plugin's own
+`beforeSubmitPrompt` and `stop` hooks. `node -e 0` rather than `true`, because
+on Windows Cursor runs hooks through PowerShell, which has no `true`; Windows
+has not been checked yet. Your other hooks are kept, the file as
+it was is saved as `hooks.json.timetrakkr-backup`, and `--undo` removes exactly
+those entries. A `hooks.json` it cannot parse is left alone. `timetrakkr
+status` says whether it is set up. Checked on staging: the same kind of
+two-prompt session recorded 8 seconds without it and 19 with it.
+
+Where `beforeSubmitPrompt` and `stop` do run, a turn starts at the prompt and
+ends when the agent stops, whether it completed, was aborted or hit an error.
 
 Time the agent spends waiting for you to approve something **is** counted on
-Cursor: its hooks document no signal for it.
+Cursor: its hooks have no signal for it.
 
 ## Install
 
 Published from a public marketplace repository, with the CLI bundled, so
-there is nothing to build. In the `cursor-agent` CLI:
+there is nothing to build. Once, in a terminal:
 
 ```sh
-cursor-agent plugin marketplace add https://github.com/<owner>/<repo>
+cursor-agent plugin marketplace add https://github.com/Time-Trakkr/agent-plugins
 ```
 
-then install `timetrakkr` from `/plugin`. The Cursor editor has no way for
-one person to add a marketplace from a repository: an admin imports the
-repository as a team marketplace (Teams or Enterprise). `<owner>/<repo>` is
-the public plugins repository; the organization that will hold it is being
-set up, and `docs/AGENT_PLUGINS_PUBLISHING.md` says how it is published. None
-of this has been run against a real Cursor.
+then start `cursor-agent`, type `/plugins`, open **Marketplace**, pick
+`timetrakkr` and choose **Install for you**. It is installed under
+`~/.cursor/plugins/cache/timetrakkr`. This works on a personal account; an
+admin can also import the repository as a team marketplace (Teams or
+Enterprise), which has not been tried.
+
+**Upgrading.** `cursor-agent plugin marketplace update` does not move an added
+marketplace to a newer release (checked with `cursor-agent` 2026.11.05: it kept
+1.0.2 after 1.1.0 was published). Remove the marketplace with
+`cursor-agent plugin marketplace remove timetrakkr`, add it again, then
+uninstall and reinstall `timetrakkr` from `/plugins`. 1.0.2 records nothing in
+the Cursor CLI; 1.1.0 is the first release that does.
 
 ## Install for development
 
@@ -150,7 +198,11 @@ session moves to the new project: one session has one row per day.
 **Nothing at session start.** Cursor's `sessionStart` hook can only add text
 to the agent's context; it has no way to show a line to you alone, and this
 plugin does not put tracking state in front of the model. Run
-`timetrakkr status` to see what a directory is tracked to.
+`/timetrakkr-status`, or `timetrakkr status` in a terminal, to see what a
+directory is tracked to.
+
+The CLI does not always run a plugin's `sessionStart`, so the browser may not
+open by itself to sign you in. `/timetrakkr-login` opens it.
 
 ## Commands
 
@@ -158,7 +210,7 @@ Two slash commands, which the agent never runs on its own:
 `/timetrakkr-login` opens the browser to sign in, or again to the sign-in
 already waiting, and shows the link; `/timetrakkr-status` shows
 `timetrakkr status`. They are skills that have the agent run the bundled CLI.
-Neither has run in a real Cursor.
+`/timetrakkr-status` has run in the Cursor CLI; `/timetrakkr-login` has not.
 
 The CLI itself:
 
@@ -192,7 +244,12 @@ one was recorded.
 
 Your prompts, the agent's replies and thoughts, tool inputs and outputs, file
 contents and file names, and your Cursor account email, which the hooks carry
-and this program does not read. The transcript is not read at all. A token is never printed or logged, and the only file one is ever written to
+and this program does not read. The transcript is not read at all.
+
+Cursor also runs installed Claude Code plugins' hooks, with Cursor's own
+payloads. If you have the Claude Code plugin installed too, it recognizes a
+Cursor payload and records nothing, so a Cursor session is never counted
+twice. A token is never printed or logged, and the only file one is ever written to
 is the sign-in that `timetrakkr login` stores.
 
 ## Not supported
@@ -201,8 +258,8 @@ is the sign-in that `timetrakkr login` stores.
   `sessionEnd` do not run there and user-level hooks are not available; and
   your token is not on that machine. Nothing is recorded for cloud agents.
 - **Token counts.** Never sent from Cursor; the product shows "not captured".
-  The hooks carry none, and the transcript format is undocumented and could
-  not be captured.
+  `stop` carries token counts, but the CLI does not run a plugin's `stop`, and
+  under Auto the hooks name no model to price them at.
 - **Approval waits** are not subtracted.
 - **A session-start line** (see "What you will see").
 
