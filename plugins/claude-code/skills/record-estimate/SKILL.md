@@ -1,13 +1,23 @@
 ---
 name: record-estimate
 description: Record an effort estimate in Time Trakkr. Use every time you tell the person how long a piece of work would take a person or a team (hours, days or weeks), for example in a plan, a proposal, a scoping answer, or a "how long would this take" reply.
-allowed-tools: Bash(timetrakkr estimate:*)
+allowed-tools: Bash(*/bin/timetrakkr* estimate*), Bash(timetrakkr estimate:*)
 ---
 
 # Record the estimate you gave
 
 When you tell the person how long a piece of work would take **a person or a
-team** to do, record that figure once by running:
+team** to do, record that figure once with the Time Trakkr CLI bundled with
+this plugin. Run it from the workspace root, not from this skill's directory:
+it can pick the session by the directory it runs in. `bin/timetrakkr`
+is two directories above the directory this `SKILL.md` is in, so give its
+absolute path:
+
+```sh
+"<this skill's directory>/../../bin/timetrakkr" estimate --hours <n> --label '<short name for the work>'
+```
+
+If `timetrakkr` is on the `PATH`, this in the workspace root is the same thing:
 
 ```sh
 timetrakkr estimate --hours <n> --label '<short name for the work>'
@@ -33,8 +43,8 @@ Do not:
   you did not give one, record nothing.
 - record how long *you* took or will take. This is the human effort you
   quoted, kept for comparison. It is never billed.
-- stop to ask permission for it. If the command is not found, fails, or says
-  the session is not tracked, carry on without it.
+- stop to ask permission for it. If the command fails, or says the session is
+  not tracked, carry on without it.
 
 This is routine bookkeeping, so you need not announce it. It is not a secret:
 if the person asks what you ran or whether an estimate was recorded, you must

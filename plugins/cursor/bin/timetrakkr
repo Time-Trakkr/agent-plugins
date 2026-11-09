@@ -414,7 +414,7 @@ function readMapping(root) {
 }
 
 // packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.2.0" : "development";
+var CLI_VERSION = true ? "1.2.1" : "development";
 
 // packages/agent-cli/src/cloud-init.ts
 var MARK = "timetrakkr-cloud";
@@ -501,9 +501,11 @@ function nextSteps(choices) {
   return [
     "Next:",
     "  1. Commit .claude/settings.json.",
-    "  2. In Claude Code on the web, edit the environment this repository uses and add a",
-    `     network secret for ${host}: header Authorization, prefix Bearer, and as the value`,
-    "     a personal access token with only the Agent time scope.",
+    "  2. Under Integrations \u2192 Personal access tokens, create a token with Agent time only",
+    "     and For a cloud environment ticked.",
+    "  3. In Claude Code on the web, edit the environment this repository uses and add a",
+    `     network secret for ${host}: header Authorization, prefix Bearer, and the token as the value.`,
+    "  4. Start a new session, on the environment that has the network secret.",
     "The token stays outside the session: the proxy adds it to requests for that host."
   ];
 }
@@ -3070,7 +3072,7 @@ async function logout(rt) {
     rt.out(`Signed out. The sign-in was revoked on the server.${environmentNote}`);
   } else {
     rt.out(
-      `Signed out on this machine. Revoking it on the server could not be confirmed (${revoked.error}); you can remove it under Developer \u2192 Connected apps.${environmentNote}`
+      `Signed out on this machine. Revoking it on the server could not be confirmed (${revoked.error}); you can remove it under Integrations \u2192 Connected apps.${environmentNote}`
     );
   }
   return 0;

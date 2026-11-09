@@ -1,8 +1,11 @@
 # Time Trakkr for Codex
 
 Records how long Codex worked in a repository and reports it to Time Trakkr,
-where it waits on your timesheet for you to review. Nothing becomes a time
-entry on its own.
+where it waits on your timesheet for you to review.
+At the end of the day it becomes a time entry on its own if your workspace
+accepts automatically, which it does unless an admin has turned that
+off. Time mapped by a `.timetrakkr.json` file in the repository, and time a
+cloud agent checks in, is never accepted automatically.
 
 This covers the Codex CLI, interactive and `codex exec`. See "Not supported"
 below for where it does not work.
@@ -24,14 +27,12 @@ Published from a public marketplace repository, with the CLI bundled, so
 there is nothing to build:
 
 ```sh
-codex plugin marketplace add <owner>/<repo> && codex plugin add timetrakkr@timetrakkr
+codex plugin marketplace add Time-Trakkr/agent-plugins && codex plugin add timetrakkr@timetrakkr
 ```
 
 Then start Codex and review and trust the plugin's hooks with `/hooks`:
-Codex does not run a plugin's hooks until you have. `<owner>/<repo>` is the
-public plugins repository; the organization that will hold it is being set
-up, and `docs/AGENT_PLUGINS_PUBLISHING.md` says how it is published. It needs
-Node 20 or later on your `PATH`.
+Codex does not run a plugin's hooks until you have. It needs Node 20 or later
+on your `PATH`.
 
 Installing from a local copy of that layout was tested with Codex CLI 0.160.0
 in a throwaway `CODEX_HOME`: Codex picked the Codex catalog and installed the
@@ -84,7 +85,7 @@ The sign-in is kept in an owner-only file under `~/.timetrakkr`, renews
 itself, and lasts as long as it is used at least once every 30 days. It can
 reach the two agent-time routes and nothing else in your workspace.
 `timetrakkr logout` revokes it and deletes it from this machine; you can also
-remove it under Developer → Connected apps.
+remove it under Integrations → Connected apps.
 
 Signing in sends this computer's hostname to the server, as part of the name
 the sign-in is listed under ("Time Trakkr CLI on <hostname>"), so that you can
@@ -94,9 +95,9 @@ If the server ever refuses to renew it (you removed it, or 30 idle days
 passed), tracking stops and nothing is sent or recorded until you sign in
 again; the next session start opens the browser for that, once that day.
 
-**With a pasted token, for machines with no browser:** set `TIMETRAKKR_TOKEN`
-to a personal access token with the `agent` scope, from Settings, where
-Codex is started. An organization key is refused: agent time belongs
+**With a pasted token, for machines with no browser:** set `TIMETRAKKR_TOKEN`,
+where Codex is started, to a personal access token with **Agent time only**
+ticked, from Integrations → Personal access tokens. An organization key is refused: agent time belongs
 to a person. Add `TIMETRAKKR_URL` only for staging or a custom domain; it
 must be `https`, except for `localhost`. When `TIMETRAKKR_TOKEN` is set it
 is used in preference to a browser sign-in, and the browser never opens on its
@@ -220,8 +221,9 @@ is the sign-in that `timetrakkr login` stores.
 ## Not supported
 
 - **Codex cloud.** A cloud task runs on OpenAI's machines, where this plugin's
-  hook scripts are not installed and your token is not present. Nothing is
-  recorded for cloud tasks.
+  hook scripts are not installed and your token is not present, so the plugin
+  records nothing there. A cloud task can check in its time instead: see
+  [agent time for agents in the cloud](https://timetrakkr.com/help/integrations/agent-time-cloud).
 - **The Codex IDE extension.** Codex's documentation says plugins are not
   available there.
 - **Approval waits** are not subtracted (see "What is measured").

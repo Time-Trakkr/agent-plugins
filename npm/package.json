@@ -1,6 +1,6 @@
 {
   "name": "@timetrakkr/cli",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Records how long a coding agent worked and reports it to Time Trakkr",
   "keywords": [
     "time-tracking",

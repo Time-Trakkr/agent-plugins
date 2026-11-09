@@ -1,8 +1,11 @@
 # Time Trakkr for Cursor
 
 Records how long Cursor's agent worked in a repository and reports it to Time
-Trakkr, where it waits on your timesheet for you to review. Nothing becomes a
-time entry on its own.
+Trakkr, where it waits on your timesheet for you to review.
+At the end of the day it becomes a time entry on its own if your workspace
+accepts automatically, which it does unless an admin has turned that
+off. Time mapped by a `.timetrakkr.json` file in the repository, and time a
+cloud agent checks in, is never accepted automatically.
 
 ## Status
 
@@ -135,7 +138,7 @@ The sign-in is kept in an owner-only file under `~/.timetrakkr`, renews
 itself, and lasts as long as it is used at least once every 30 days. It can
 reach the two agent-time routes and nothing else in your workspace.
 `timetrakkr logout` revokes it and deletes it from this machine; you can also
-remove it under Developer → Connected apps.
+remove it under Integrations → Connected apps.
 
 Signing in sends this computer's hostname to the server, as part of the name
 the sign-in is listed under ("Time Trakkr CLI on <hostname>"), so that you can
@@ -145,9 +148,9 @@ If the server ever refuses to renew it (you removed it, or 30 idle days
 passed), tracking stops and nothing is sent or recorded until you sign in
 again; the next session start opens the browser for that, once that day.
 
-**With a pasted token, for machines with no browser:** set `TIMETRAKKR_TOKEN`
-to a personal access token with the `agent` scope, from Settings, where
-Cursor is started. An organization key is refused: agent time belongs
+**With a pasted token, for machines with no browser:** set `TIMETRAKKR_TOKEN`,
+where Cursor is started, to a personal access token with **Agent time only**
+ticked, from Integrations → Personal access tokens. An organization key is refused: agent time belongs
 to a person. Add `TIMETRAKKR_URL` only for staging or a custom domain; it
 must be `https`, except for `localhost`. When `TIMETRAKKR_TOKEN` is set it
 is used in preference to a browser sign-in, and the browser never opens on its
@@ -256,10 +259,12 @@ is the sign-in that `timetrakkr login` stores.
 
 - **Cursor cloud agents.** Cursor's documentation says `sessionStart` and
   `sessionEnd` do not run there and user-level hooks are not available; and
-  your token is not on that machine. Nothing is recorded for cloud agents.
+  your token is not on that machine. The plugin records nothing there. A cloud
+  agent can check in its time instead: see
+  [agent time for agents in the cloud](https://timetrakkr.com/help/integrations/agent-time-cloud).
 - **Token counts.** Never sent from Cursor; the product shows "not captured".
-  `stop` carries token counts, but the CLI does not run a plugin's `stop`, and
-  under Auto the hooks name no model to price them at.
+  The editor's `stop` hook carries token counts, but this plugin does not read
+  them, and under Auto the hooks name no model to price them at.
 - **Approval waits** are not subtracted.
 - **A session-start line** (see "What you will see").
 
@@ -271,7 +276,7 @@ is the sign-in that `timetrakkr login` stores.
 - Nothing is recorded while the workspace has agent time switched off, and
   time from before it was switched on is never sent later. "Off" includes a
   workspace whose admin has not set a default agent rate yet, so time recorded
-  before the rate is set is dropped too. The session start line and
-  `timetrakkr status` give the server's reason, such as "Agent time is not set
+  before the rate is set is dropped too. `timetrakkr status` gives the
+  server's reason, such as "Agent time is not set
   up yet: an admin needs to set a default agent rate under Settings → Agent
   time."

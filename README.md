@@ -2,7 +2,9 @@
 
 Records how long your coding agent worked in a repository your workspace has
 connected, and reports it to [Time Trakkr](https://timetrakkr.com), where it
-waits on your timesheet. Version 1.2.0.
+waits on your timesheet for you to review. At the end of the day it becomes a
+time entry on its own if your workspace accepts automatically, which it does
+unless an admin has turned that off. Version 1.2.1.
 
 This repository is generated. Do not edit it here: changes are made in the
 Time Trakkr repository and published on release.
@@ -29,15 +31,37 @@ codex plugin marketplace add Time-Trakkr/agent-plugins && codex plugin add timet
 Then start Codex and trust the plugin's hooks with `/hooks`: Codex does not run
 a plugin's hooks until you have.
 
-**Cursor (the `cursor-agent` CLI)**
+**Cursor (the editor and the `cursor-agent` CLI)**
+
+Install it with the Cursor CLI. Run this once in a terminal:
 
 ```sh
 cursor-agent plugin marketplace add https://github.com/Time-Trakkr/agent-plugins
 ```
 
-Then install `timetrakkr` from `/plugin`. The Cursor editor has no way for one
-person to add a marketplace from a repository; there it needs an admin to
-import this repository as a team marketplace.
+then start `cursor-agent`, type `/plugins`, open **Marketplace**, pick
+`timetrakkr` and choose **Install for you**. Restart the Cursor editor
+afterwards, so it loads the plugin. Then, once, so that the Cursor CLI counts
+whole turns:
+
+```sh
+npx @timetrakkr/cli cursor setup
+```
+
+It shows the two entries it will add to `~/.cursor/hooks.json` and asks first.
+`npx @timetrakkr/cli cursor setup --undo` takes them out again.
+
+To upgrade, `cursor-agent plugin marketplace update` does not move to a newer
+release: run `cursor-agent plugin marketplace remove timetrakkr`, add the
+marketplace again with the command above, then uninstall and reinstall
+`timetrakkr` from `/plugins`.
+
+**Agents in the cloud**
+
+A cloud agent does not run these plugins. Claude Code cloud sessions can
+measure their time with `npx @timetrakkr/cli init --cloud`, and any cloud agent
+can check in instead. See
+[agent time for agents in the cloud](https://timetrakkr.com/help/integrations/agent-time-cloud).
 
 ## Sign in
 
@@ -49,7 +73,7 @@ If you closed that window, sign in from inside the session:
 
 - Claude Code: `/timetrakkr:login`
 - Codex: ask it to use the `timetrakkr-login` skill, or run
-  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.2.0/bin/timetrakkr login`
+  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.2.1/bin/timetrakkr login`
 - Cursor: `/timetrakkr-login`
 
 Your workspace on a custom domain or on staging: sign in with

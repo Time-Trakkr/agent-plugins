@@ -1,12 +1,18 @@
 # Time Trakkr for Claude Code
 
 Records how long Claude Code worked in a repository and reports it to Time
-Trakkr, where it waits on your timesheet for you to review. Nothing becomes a
-time entry on its own.
+Trakkr, where it waits on your timesheet for you to review.
+At the end of the day it becomes a time entry on its own if your workspace
+accepts automatically, which it does unless an admin has turned that
+off. Time mapped by a `.timetrakkr.json` file in the repository, and time a
+cloud agent checks in, is never accepted automatically.
 
-This covers Claude Code on your own machine; cloud sessions are not
-supported. There is a plugin for Codex in `plugins/codex`, and Cursor support
-is being verified in `plugins/cursor`.
+This covers Claude Code on your own machine. A Claude Code cloud session does
+not load plugins: it can measure its time from hooks committed to the
+repository with `timetrakkr init --cloud`, or check in instead. See
+[agent time for agents in the cloud](https://timetrakkr.com/help/integrations/agent-time-cloud).
+There are plugins for Codex in `plugins/codex` and for Cursor in
+`plugins/cursor`.
 
 ## What is measured
 
@@ -21,13 +27,10 @@ Published from a public marketplace repository, with the CLI bundled, so
 there is nothing to build:
 
 ```sh
-claude plugin marketplace add <owner>/<repo> && claude plugin install timetrakkr@timetrakkr
+claude plugin marketplace add Time-Trakkr/agent-plugins && claude plugin install timetrakkr@timetrakkr
 ```
 
-`<owner>/<repo>` is the public plugins repository; the organization that will
-hold it is being set up, and `docs/AGENT_PLUGINS_PUBLISHING.md` says how it is
-published. It needs Node 20 or later on your `PATH`. There is nothing else to
-install.
+It needs Node 20 or later on your `PATH`. There is nothing else to install.
 
 ## Install for development
 
@@ -71,7 +74,7 @@ The sign-in is kept in an owner-only file under `~/.timetrakkr`, renews
 itself, and lasts as long as it is used at least once every 30 days. It can
 reach the two agent-time routes and nothing else in your workspace.
 `timetrakkr logout` revokes it and deletes it from this machine; you can also
-remove it under Developer → Connected apps.
+remove it under Integrations → Connected apps.
 
 Signing in sends this computer's hostname to the server, as part of the name
 the sign-in is listed under ("Time Trakkr CLI on <hostname>"), so that you can
@@ -81,9 +84,9 @@ If the server ever refuses to renew it (you removed it, or 30 idle days
 passed), tracking stops and nothing is sent or recorded until you sign in
 again; the next session start opens the browser for that, once that day.
 
-**With a pasted token, for machines with no browser:** set `TIMETRAKKR_TOKEN`
-to a personal access token with the `agent` scope, from Settings, where
-Claude Code is started. An organization key is refused: agent time belongs
+**With a pasted token, for machines with no browser:** set `TIMETRAKKR_TOKEN`,
+where Claude Code is started, to a personal access token with **Agent time only**
+ticked, from Integrations → Personal access tokens. An organization key is refused: agent time belongs
 to a person. Add `TIMETRAKKR_URL` only for staging or a custom domain; it
 must be `https`, except for `localhost`. When `TIMETRAKKR_TOKEN` is set it
 is used in preference to a browser sign-in, and the browser never opens on its
