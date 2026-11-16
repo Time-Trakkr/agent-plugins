@@ -92,7 +92,7 @@ must be `https`, except for `localhost`. When `TIMETRAKKR_TOKEN` is set it
 is used in preference to a browser sign-in, and the browser never opens on its
 own; `timetrakkr status` says which one is in use.
 
-Either way, the workspace must have the agent time add-on switched on.
+Either way, an admin must switch on Agent time under Settings → Add-ons. It is free on every plan.
 Otherwise the session is not tracked and nothing is sent.
 
 ## Say what a repository's time belongs to

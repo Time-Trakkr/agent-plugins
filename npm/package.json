@@ -1,16 +1,24 @@
 {
   "name": "@timetrakkr/cli",
-  "version": "1.2.1",
-  "description": "Records how long a coding agent worked and reports it to Time Trakkr",
+  "version": "1.2.2",
+  "description": "Agent time tracking for Claude Code, Codex and Cursor: records how long a coding agent worked and reports it to Time Trakkr as billable agent time.",
   "keywords": [
+    "agent-time-tracking",
     "time-tracking",
+    "time-trakkr",
+    "timetrakkr",
     "claude-code",
     "codex",
     "cursor",
     "coding-agent",
-    "timetrakkr"
+    "ai-agents",
+    "billing",
+    "invoicing",
+    "timesheet",
+    "hooks"
   ],
-  "homepage": "https://timetrakkr.com",
+  "homepage": "https://timetrakkr.com/time-tracking-for-ai-agents",
+  "author": "Time Trakkr <hello@timetrakkr.com> (https://timetrakkr.com)",
   "license": "MIT",
   "bin": {
     "timetrakkr": "dist/timetrakkr.cjs"

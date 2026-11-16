@@ -1,5 +1,9 @@
 # @timetrakkr/cli
 
+**Agent time tracking for Claude Code, Codex and Cursor.** Time Trakkr records how long your coding agent worked in a client's repository and puts it on your timesheet as agent time, kept apart from your own hours and billed at an agent rate you set.
+
+[Time Trakkr](https://timetrakkr.com) is time tracking, profitability and invoicing for billable work, whether it's done by freelancers, agencies or AI agents.
+
 The command-line half of the [Time Trakkr](https://timetrakkr.com) plugins for
 Claude Code, Codex and Cursor. The plugins call it from the agent's hooks to
 measure how long the agent worked in a repository your workspace has
@@ -38,7 +42,7 @@ npx @timetrakkr/cli login
 ```
 
 Your browser opens on Time Trakkr. Sign in, pick your workspace and press
-Allow. The workspace must have the Agent time add-on switched on. For a
+Allow. An admin must switch on Agent time under Settings → Add-ons; it is free on every plan. For a
 workspace on a custom domain or on staging, add `--url <address>` once; the
 address is remembered.
 

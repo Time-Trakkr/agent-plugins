@@ -414,7 +414,7 @@ function readMapping(root) {
 }
 
 // packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.2.1" : "development";
+var CLI_VERSION = true ? "1.2.2" : "development";
 
 // packages/agent-cli/src/cloud-init.ts
 var MARK = "timetrakkr-cloud";
