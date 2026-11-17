@@ -8,7 +8,7 @@ Records how long your coding agent worked in a repository your workspace has
 connected, and reports it to [Time Trakkr](https://timetrakkr.com), where it
 waits on your timesheet for you to review. At the end of the day it becomes a
 time entry on its own if your workspace accepts automatically, which it does
-unless an admin has turned that off. Version 1.3.0.
+unless an admin has turned that off. Version 1.3.1.
 
 This repository is generated. Do not edit it here: changes are made in the
 Time Trakkr repository and published on release.
@@ -77,7 +77,7 @@ If you closed that window, sign in from inside the session:
 
 - Claude Code: `/timetrakkr:login`
 - Codex: ask it to use the `timetrakkr-login` skill, or run
-  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.3.0/bin/timetrakkr login`
+  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.3.1/bin/timetrakkr login`
 - Cursor: `/timetrakkr-login`
 
 Your workspace on a custom domain or on staging: sign in with

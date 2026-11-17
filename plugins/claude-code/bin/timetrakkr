@@ -414,7 +414,7 @@ function readMapping(root) {
 }
 
 // packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.3.0" : "development";
+var CLI_VERSION = true ? "1.3.1" : "development";
 
 // packages/agent-cli/src/cloud-init.ts
 var MARK = "timetrakkr-cloud";
@@ -2582,7 +2582,11 @@ function signInLines(credentials, config, home) {
     ...config.offReason ? [`Why off:    ${config.offReason}`] : []
   ];
 }
-function mappingLines(context) {
+function mappingLines(context, config) {
+  if (config?.ok && !config.enabled) {
+    const see = config.offReason ? " (see Why off)" : "";
+    return [`Not tracked: agent time is off for this workspace${see}`];
+  }
   const { mapping } = context;
   if (!mapping) {
     return [`Not tracked: ${context.untrackedReason ?? "no mapping"}`];
@@ -2617,7 +2621,7 @@ async function printStatus(rt) {
     const remote = local.remote === null ? null : normalizeRemote(local.remote);
     lines.push(`Repository: ${remote ?? `${context.root} (no remote)`}`);
   }
-  lines.push(...mappingLines(context), ...signInLines(credentials, config, home));
+  lines.push(...mappingLines(context, config), ...signInLines(credentials, config, home));
   const session = chooseSession(rt, home);
   if (session?.meta) {
     const state = session.meta.off ? "tracking off" : "tracking on";
@@ -3050,7 +3054,10 @@ async function welcomeLine(rt) {
     return "Signed in.";
   }
   const workspace = oneLine(config.workspaceName, 80) || "your workspace";
-  return config.enabled ? `Signed in to ${workspace}. Agent time is on for that workspace.` : `Signed in to ${workspace}. Agent time is not switched on for that workspace, so nothing is tracked yet.`;
+  if (config.enabled) {
+    return `Signed in to ${workspace}. Agent time is on for that workspace.`;
+  }
+  return config.offReason ? `Signed in to ${workspace}. Nothing is tracked yet. ${config.offReason}` : `Signed in to ${workspace}. Agent time is not switched on for that workspace, so nothing is tracked yet.`;
 }
 async function signIn(rt, options, onLink = () => void 0) {
   const home = stateHome(rt.env);
