@@ -8,7 +8,7 @@ Records how long your coding agent worked in a repository your workspace has
 connected, and reports it to [Time Trakkr](https://timetrakkr.com), where it
 waits on your timesheet for you to review. At the end of the day it becomes a
 time entry on its own if your workspace accepts automatically, which it does
-unless an admin has turned that off. Version 1.2.2.
+unless an admin has turned that off. Version 1.3.0.
 
 This repository is generated. Do not edit it here: changes are made in the
 Time Trakkr repository and published on release.
@@ -77,11 +77,26 @@ If you closed that window, sign in from inside the session:
 
 - Claude Code: `/timetrakkr:login`
 - Codex: ask it to use the `timetrakkr-login` skill, or run
-  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.2.2/bin/timetrakkr login`
+  `~/.codex/plugins/cache/timetrakkr/timetrakkr/1.3.0/bin/timetrakkr login`
 - Cursor: `/timetrakkr-login`
 
 Your workspace on a custom domain or on staging: sign in with
 `timetrakkr login --url <address>` once; the address is remembered.
+
+## Choose the task for a session
+
+A session goes to the project and task your workspace's rules give its
+repository. To put one session on another task you can log time to, choose it
+from inside the session:
+
+- Claude Code: `/timetrakkr:task acme bug`
+- Codex: ask it to use the `timetrakkr-task` skill with your words
+- Cursor: `/timetrakkr-task acme bug`
+
+Once the session has recorded time, you pick whether the whole session moves
+or only the time from now on. The agent never picks a task or an option for
+you. A chosen task also tracks a repository no rule covers, or a folder that
+is not a git repository. Each plugin's README has the details.
 
 ## What is recorded and what is not
 

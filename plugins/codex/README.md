@@ -83,7 +83,8 @@ address is remembered.
 
 The sign-in is kept in an owner-only file under `~/.timetrakkr`, renews
 itself, and lasts as long as it is used at least once every 30 days. It can
-reach the two agent-time routes and nothing else in your workspace.
+report agent time, read the repository rules that apply to you, and list
+the projects and tasks you can log time to, and nothing else in your workspace.
 `timetrakkr logout` revokes it and deletes it from this machine; you can also
 remove it under Integrations → Connected apps.
 
@@ -132,7 +133,8 @@ workspace refuses a project you cannot log time to, so nothing goes to anyone
 else's. If you do not want a repository tracked, run `timetrakkr off` in the
 session, or remove the file.
 
-**A repository with neither is not tracked: nothing about it is recorded and
+**A repository with neither, and no task chosen in the session, is not
+tracked: nothing about it is recorded and
 nothing about it is sent, including its remote.** The request that fetches the
 workspace's rules carries your token and nothing about the repository.
 
@@ -141,6 +143,29 @@ your next prompt, and that day's time for the session moves to the new
 project: one session has one row per day. If the repository stops being
 mapped, what was already recorded is posted to the old project and recording
 stops.
+
+## Choose the task for one session
+
+To put one session on a different task from the one the rules or the file
+give it, run the `timetrakkr-task` skill with words to search for, such as `acme bug`. It runs
+`timetrakkr task`, which searches the projects and tasks you can log time to.
+
+- One match is chosen. Several are listed by number and nothing changes until
+  you answer with a number or more words.
+- Once the session has recorded time, it offers two options and changes
+  nothing until you pick one: the whole session (`--whole-session`), which
+  moves everything not yet accepted to the chosen task, or from now on
+  (`--from-now`), which leaves the time so far where it is.
+- With no words it shows the session's task and what decided it. `--clear`
+  goes back to the rules or the file.
+- The choice lasts for that session only.
+
+The agent is told to put the matches and the options to you and to wait for
+your answer, never to choose a task or an option itself. A task chosen this
+way also tracks a repository no rule covers, or a folder that is not a git
+repository, without sending its address or branch. It never tracks a branch
+whose rule is for a project you cannot log time to. Time on a chosen task is
+never accepted automatically.
 
 ## What you will see
 
@@ -158,11 +183,13 @@ print it. `timetrakkr status` always tells you.
 
 ## Commands
 
-Two skills, for when you ask: `timetrakkr-login` opens the browser to sign in,
-or again to the sign-in already waiting, and shows the link;
-`timetrakkr-status` shows `timetrakkr status`. Codex runs the bundled CLI for
-them as an ordinary command, so its sandbox and approval rules apply. Neither
-was run in a real Codex session.
+Three skills, for when you ask: `timetrakkr-login` opens the browser to sign
+in, or again to the sign-in already waiting, and shows the link;
+`timetrakkr-status` shows `timetrakkr status`; `timetrakkr-task` shows or
+chooses the session's task with `timetrakkr task` (see
+[Choose the task for one session](#choose-the-task-for-one-session)). Codex
+runs the bundled CLI for them as an ordinary command, so its sandbox and
+approval rules apply. None was run in a real Codex session.
 
 The CLI itself:
 
@@ -171,6 +198,7 @@ The CLI itself:
 | `timetrakkr status` | What this directory is tracked to and why, and whether sign-in and the workspace switch are OK |
 | `timetrakkr off` | Stop tracking this session. Time already sent stays on your timesheet for you to discard |
 | `timetrakkr on` | Resume tracking this session |
+| `timetrakkr task [<words> \| <number>] [--whole-session \| --from-now] [--clear]` | Show or choose the task this session is tracked to |
 | `timetrakkr estimate --hours <n> --label "<text>"` | Record how long the agent said a piece of work would take a person or a team |
 
 Run by the agent, these act on the session Codex names in `CODEX_SESSION_ID`.

@@ -414,7 +414,7 @@ function readMapping(root) {
 }
 
 // packages/agent-cli/src/version.ts
-var CLI_VERSION = true ? "1.2.2" : "development";
+var CLI_VERSION = true ? "1.3.0" : "development";
 
 // packages/agent-cli/src/cloud-init.ts
 var MARK = "timetrakkr-cloud";
@@ -774,6 +774,7 @@ function oneLine(text, max = MAX_LINE) {
 var RETRYABLE_STATUSES = /* @__PURE__ */ new Set([401, 403, 408, 425, 429]);
 var MAX_ERROR_LENGTH = 200;
 var MEMBER_ID = /^[0-9a-f-]{36}$/i;
+var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function request(credentials, method, path, signal, body) {
   return fetch(`${credentials.baseUrl}${path}`, {
     method,
@@ -879,22 +880,84 @@ async function fetchConfig(credentials, signal) {
     return { ok: false, error: describeThrown(error) };
   }
 }
+function keptTarget(body) {
+  if (!isRecord(body) || body.accepted_target_kept !== true) {
+    return null;
+  }
+  const { project_id: projectId, task_id: taskId } = body;
+  return typeof projectId === "string" && UUID2.test(projectId) && typeof taskId === "string" && UUID2.test(taskId) ? { projectId, taskId } : null;
+}
+var UNKNOWN_TARGET_SOURCE = "Unknown field: target_source";
+async function putOnce(credentials, body, signal) {
+  const response = await request(credentials, "PUT", "/api/v1/agent/session_days", signal, body);
+  const answer = await readJsonBody(response);
+  if (response.ok) {
+    return { kind: "ok", kept: keptTarget(answer) };
+  }
+  const off = response.status === 403 ? disabledReason(answer) : null;
+  if (off) {
+    return { kind: "off", reason: off };
+  }
+  const error = failureText(response.status, answer);
+  if (response.status >= 500 || RETRYABLE_STATUSES.has(response.status)) {
+    return { kind: "retry", error, status: response.status };
+  }
+  const unknown = response.status === 422 && body.target_source !== void 0 && isRecord(answer) && answer.message === UNKNOWN_TARGET_SOURCE;
+  return unknown ? { kind: "rejected", status: response.status, error, unknownTargetSource: true } : { kind: "rejected", status: response.status, error };
+}
 async function putSessionDay(credentials, body, signal) {
   try {
-    const response = await request(credentials, "PUT", "/api/v1/agent/session_days", signal, body);
-    if (response.ok) {
-      return { kind: "ok" };
+    const first = await putOnce(credentials, body, signal);
+    if (!first.unknownTargetSource) {
+      return first;
     }
-    const answer = await readJsonBody(response);
-    const off = response.status === 403 ? disabledReason(answer) : null;
-    if (off) {
-      return { kind: "off", reason: off };
-    }
-    const error = failureText(response.status, answer);
-    const retry = response.status >= 500 || RETRYABLE_STATUSES.has(response.status);
-    return retry ? { kind: "retry", error, status: response.status } : { kind: "rejected", status: response.status, error };
+    const { target_source: _unsaid, ...older } = body;
+    const { unknownTargetSource: _again, ...second } = await putOnce(credentials, older, signal);
+    return second;
   } catch (error) {
     return { kind: "retry", error: describeThrown(error) };
+  }
+}
+function parseProject(project) {
+  if (!isRecord(project) || typeof project.project_id !== "string") {
+    return [];
+  }
+  const projectId = project.project_id.toLowerCase();
+  if (!UUID2.test(projectId) || !Array.isArray(project.tasks)) {
+    return [];
+  }
+  const name = (value) => typeof value === "string" ? oneLine(value) : "";
+  const prefix = [name(project.client_name), name(project.project_name)];
+  return project.tasks.flatMap(
+    (task) => isRecord(task) && typeof task.task_id === "string" && UUID2.test(task.task_id) ? [
+      {
+        projectId,
+        taskId: task.task_id.toLowerCase(),
+        label: [...prefix, name(task.task_name)].filter(Boolean).join(" / ")
+      }
+    ] : []
+  );
+}
+async function fetchTargets(credentials, query, signal) {
+  try {
+    const path = `/api/v1/agent/targets?q=${encodeURIComponent(query)}`;
+    const response = await request(credentials, "GET", path, signal);
+    const body = await readJsonBody(response);
+    if (!response.ok) {
+      const off = response.status === 403 ? disabledReason(body) : null;
+      const error = failureText(response.status, body);
+      return off ? { ok: false, error, status: response.status, off } : { ok: false, error, status: response.status };
+    }
+    if (!isRecord(body) || !Array.isArray(body.projects)) {
+      return { ok: false, error: "unexpected response", status: response.status };
+    }
+    return {
+      ok: true,
+      options: body.projects.flatMap(parseProject),
+      hasMore: body.has_more === true
+    };
+  } catch (error) {
+    return { ok: false, error: describeThrown(error) };
   }
 }
 
@@ -1124,6 +1187,22 @@ function fromRules(local, rules, credentials) {
     untrackedReason: null,
     repository: normalizeRemote(remote),
     branch
+  };
+}
+function withChoice(context, choice) {
+  if (!choice) {
+    return context;
+  }
+  return {
+    ...context,
+    mapping: {
+      projectId: choice.projectId,
+      taskId: choice.taskId,
+      mappingId: null,
+      source: "chosen",
+      label: choice.label
+    },
+    untrackedReason: null
   };
 }
 function resolveContext(local, rules, credentials) {
@@ -1580,6 +1659,10 @@ function markTokensUnreliable(home, host, sessionId) {
   const state = readTokenState(home, host, sessionId);
   writeTokenState(home, host, sessionId, { ...state, unreliable: true });
 }
+function startSegmentTokens(home, host, from, to) {
+  const state = readTokenState(home, host, from);
+  writeTokenState(home, host, to, { ...EMPTY, offset: state.offset, lastModel: state.lastModel });
+}
 function add(a, b, sign) {
   return {
     input: a.input + sign * b.input,
@@ -1707,6 +1790,11 @@ function toPosted(summary, item) {
 function alreadyPosted(posted, next) {
   return posted !== void 0 && posted.activeSeconds === next.activeSeconds && posted.turnCount === next.turnCount && posted.firstTurnStartedAt === next.firstTurnStartedAt && posted.lastTurnEndedAt === next.lastTurnEndedAt && posted.projectId === next.projectId && posted.taskId === next.taskId && (posted.tokenTotal ?? 0) === (next.tokenTotal ?? 0);
 }
+var TARGET_SOURCES = {
+  platform: "rule",
+  file: "file",
+  chosen: "chosen"
+};
 function toBody(item, summary, withEstimate, cloud) {
   const { meta, mapping } = item;
   const tokens = tokensForDay(item.tokens, summary.day);
@@ -1725,7 +1813,8 @@ function toBody(item, summary, withEstimate, cloud) {
     // Nothing safe to summarize from yet: the prompt is never read.
     summary: null,
     model: meta.model ?? item.tokens.lastModel,
-    mapping_id: mapping.mappingId ?? null,
+    mapping_id: mapping.source === "platform" ? mapping.mappingId ?? null : null,
+    target_source: TARGET_SOURCES[mapping.source],
     // Left out, not zeroed, when the transcript could not be read.
     ...tokens ? { tokens } : {},
     ...withEstimate && item.estimate ? { estimated_effort: { seconds: item.estimate.seconds, label: item.estimate.label } } : {},
@@ -1839,7 +1928,7 @@ async function postSession(home, credentials, item, signal, renew, cloud) {
       rejection = result.error;
       posted[summary.day] = { ...acknowledged, rejected: result.status };
     } else {
-      posted[summary.day] = acknowledged;
+      posted[summary.day] = result.kept ? { ...acknowledged, kept: result.kept } : acknowledged;
     }
     if (withEstimate) {
       sentEstimate = item.estimate;
@@ -2041,6 +2130,35 @@ function mapCursorHook(event, payload) {
   }
 }
 
+// packages/agent-cli/src/segments.ts
+function rootIdOf(meta) {
+  return meta.segmentOf ?? meta.sessionId;
+}
+function currentSegmentId(home, host, sessionId) {
+  const pointer = readMeta(home, host, sessionId)?.segment;
+  return isSafeSessionId(pointer) && readMeta(home, host, pointer)?.segmentOf === sessionId ? pointer : sessionId;
+}
+function partOf(meta) {
+  if (!meta.segmentOf) {
+    return 1;
+  }
+  const part = Number(meta.sessionId.slice(meta.segmentOf.length + 1));
+  return Number.isInteger(part) && part > 1 ? part : 1;
+}
+function segmentsOf(home, meta) {
+  const rootId = rootIdOf(meta);
+  const root = readMeta(home, meta.host, rootId);
+  const later = listMetas(home).filter(
+    (other) => other.host === meta.host && other.segmentOf === rootId
+  );
+  return [...root ? [root] : [], ...later].sort((a, b) => partOf(a) - partOf(b));
+}
+function nextSegmentId(segments, rootId) {
+  const last = Math.max(1, ...segments.map(partOf));
+  const id = `${rootId}.${last + 1}`;
+  return isSafeSessionId(id) ? id : null;
+}
+
 // packages/agent-cli/src/login-background.ts
 var import_node_fs11 = require("node:fs");
 function lockAge(home, now) {
@@ -2145,6 +2263,18 @@ function switchedOffLine(config) {
 function describeMapping(mapping) {
   return mapping.label ?? `project ${mapping.projectId}, task ${mapping.taskId}`;
 }
+function describeTarget(mapping) {
+  const target = describeMapping(mapping);
+  return mapping.source === "chosen" ? `${target} (chosen in this session)` : target;
+}
+var SOURCE_WORDS = {
+  chosen: "chosen in this session",
+  platform: "a rule on the platform",
+  file: ".timetrakkr.json"
+};
+function describeWithSource(mapping) {
+  return `${describeMapping(mapping)} (${SOURCE_WORDS[mapping.source]})`;
+}
 function signInLine(host, why, prompt) {
   return prompt === "opened" ? `${NAME}: ${why}. A browser window has opened to sign in; once you allow it, tracking starts at your next prompt.` : `${notTracked(why)} ${HOST_SIGN_IN_HINT[host]}`;
 }
@@ -2162,7 +2292,7 @@ function sessionStartLine(meta, credentials, config) {
   if (switchedOff) {
     return switchedOffLine(config);
   }
-  const target = describeMapping(meta.mapping);
+  const target = describeTarget(meta.mapping);
   if (config && !config.ok) {
     const problem = config.status === void 0 ? `could not reach ${NAME} (${config.error})` : `sign-in failed (${oneLine(config.error)})`;
     return `${NAME}: tracking to ${target}, but ${problem}. Nothing is sent until that works.`;
@@ -2245,7 +2375,7 @@ async function refresh(run2, existing) {
   const couldTrack = couldBeTracked(local);
   const config = credentials.ok && couldTrack ? await getConfig(home, credentials.credentials, at, signal, auth.renew) : null;
   const rules = config?.ok ? config.mappings : credentials.ok ? lastKnownMappings(home, credentials.credentials) : null;
-  const context = resolveContext(local, rules, credentials);
+  const context = withChoice(resolveContext(local, rules, credentials), existing?.choice);
   if (existing?.mapping && !context.mapping) {
     await flush({
       home,
@@ -2317,11 +2447,13 @@ function isOpenAlready(home, host, hookSignal) {
 }
 async function handleHook(rt, host, event, signal = AbortSignal.timeout(NETWORK_BUDGET_MS)) {
   const at = rt.now();
-  const hookSignal = ADAPTERS[host](event, parsePayload(await rt.stdin()));
-  if (!hookSignal) {
+  const named = ADAPTERS[host](event, parsePayload(await rt.stdin()));
+  if (!named) {
     return;
   }
   const home = stateHome(rt.env);
+  const segment = currentSegmentId(home, host, named.sessionId);
+  const hookSignal = segment === named.sessionId ? named : { ...named, sessionId: segment };
   if (isOpenAlready(home, host, hookSignal)) {
     return;
   }
@@ -2393,24 +2525,33 @@ function mostRecentSessionHere(rt, home) {
   } : null;
 }
 function chooseSession(rt, home) {
-  return sessionFromEnvironment(rt, home) ?? mostRecentSessionHere(rt, home);
+  const chosen2 = sessionFromEnvironment(rt, home) ?? mostRecentSessionHere(rt, home);
+  return chosen2 ? latestSegment(home, chosen2) : null;
+}
+function latestSegment(home, chosen2) {
+  if (!chosen2.meta) {
+    return chosen2;
+  }
+  const id = currentSegmentId(home, chosen2.host, rootIdOf(chosen2.meta));
+  const meta = id === chosen2.sessionId ? null : readMeta(home, chosen2.host, id);
+  return meta ? { ...chosen2, sessionId: id, meta } : chosen2;
 }
 
 // packages/agent-cli/src/commands.ts
 function switchTracking(rt, off) {
   const home = stateHome(rt.env);
-  const chosen = chooseSession(rt, home);
-  if (!chosen) {
+  const chosen2 = chooseSession(rt, home);
+  if (!chosen2) {
     rt.err(NO_SESSION);
     return 1;
   }
-  const meta = chosen.meta ?? newMeta(chosen.host, chosen.sessionId, "");
+  const meta = chosen2.meta ?? newMeta(chosen2.host, chosen2.sessionId, "");
   if (off && !meta.off && meta.mapping) {
     appendEvent(home, meta.host, meta.sessionId, { kind: "turn_end", at: rt.now() });
   }
   writeMeta(home, { ...meta, off, updatedAt: rt.now() });
   rt.out(
-    `Tracking is ${off ? "off" : "on"} for ${HOST_LABELS[chosen.host]} session ${chosen.sessionId} (${chosen.because}).`
+    `Tracking is ${off ? "off" : "on"} for ${HOST_LABELS[chosen2.host]} session ${chosen2.sessionId} (${chosen2.because}).`
   );
   return 0;
 }
@@ -2481,6 +2622,9 @@ async function printStatus(rt) {
   if (session?.meta) {
     const state = session.meta.off ? "tracking off" : "tracking on";
     lines.push(`Session:    ${session.sessionId}, ${state} (${session.because})`);
+    if (session.meta.mapping?.source === "chosen") {
+      lines.push(`Task:       ${describeTarget(session.meta.mapping)}`);
+    }
     if (session.meta.lastError) {
       lines.push(`Last error: ${oneLine(session.meta.lastError)}`);
     }
@@ -2585,12 +2729,12 @@ function recordEstimate(rt, args) {
     return 1;
   }
   const home = stateHome(rt.env);
-  const chosen = chooseSession(rt, home);
-  if (!chosen) {
+  const chosen2 = chooseSession(rt, home);
+  if (!chosen2) {
     rt.err(NO_SESSION);
     return 1;
   }
-  const { meta } = chosen;
+  const { meta } = chosen2;
   if (!meta?.mapping || meta.off) {
     rt.out("This session is not tracked, so the estimate was not recorded.");
     return 0;
@@ -2598,7 +2742,7 @@ function recordEstimate(rt, args) {
   const estimate = { seconds: parsed.seconds, label: parsed.label, at: rt.now(), sent: false };
   writeMeta(home, { ...meta, estimate });
   rt.out(
-    `Recorded an estimate of ${parsed.words} ("${parsed.label}") for ${HOST_LABELS[chosen.host]} session ${chosen.sessionId}.`
+    `Recorded an estimate of ${parsed.words} ("${parsed.label}") for ${HOST_LABELS[chosen2.host]} session ${chosen2.sessionId}.`
   );
   return 0;
 }
@@ -3156,6 +3300,407 @@ async function renewSignIn(home, now, rejected, signal) {
   }
 }
 
+// packages/agent-cli/src/task-apply.ts
+function hasRecordedTime(home, segments, currentId) {
+  return segments.some((meta) => {
+    const turns = turnsFromEvents(readLog(home, meta.host, meta.sessionId).events);
+    const open = meta.sessionId === currentId && turns.at(-1)?.complete === false;
+    return (open ? turns.slice(0, -1) : turns).some((turn) => turn.activeMs > 0);
+  });
+}
+function describeTargetOf(target) {
+  return target.mapping ? describeWithSource(target.mapping) : `nothing: not tracked (${target.untrackedReason ?? "no mapping"})`;
+}
+function retarget(home, meta, target, now) {
+  const latest = readMeta(home, meta.host, meta.sessionId) ?? meta;
+  writeMeta(home, {
+    ...latest,
+    choice: target.choice,
+    mapping: target.mapping,
+    untrackedReason: target.mapping ? null : target.untrackedReason,
+    unsent: true,
+    updatedAt: now
+  });
+}
+async function send(ctx, current) {
+  await flush({
+    home: ctx.home,
+    env: ctx.rt.env,
+    now: ctx.now,
+    signal: ctx.signal,
+    own: { host: current.host, sessionId: current.sessionId },
+    config: null,
+    renew: ctx.renew
+  });
+}
+function sameTarget(posted, mapping) {
+  return posted.projectId === mapping.projectId && posted.taskId === mapping.taskId;
+}
+function outcomeOf(posted, mapping) {
+  if (!posted || !sameTarget(posted, mapping)) {
+    return "unsent";
+  }
+  if (posted.rejected !== void 0) {
+    return "refused";
+  }
+  return posted.kept ? "kept" : "moved";
+}
+function reportDays(home, segments, mapping, now) {
+  return segments.flatMap((segment) => {
+    const meta = readMeta(home, segment.host, segment.sessionId) ?? segment;
+    const part = partOf(meta);
+    const { events } = readLog(home, meta.host, meta.sessionId);
+    return summarizeSessionDays(events, localDay).map(({ day }) => ({
+      label: segments.length > 1 && part > 1 ? `${day} (part ${part})` : day,
+      outcome: stillAccepted(day, now) ? outcomeOf(meta.posted[day], mapping) : "old"
+    }));
+  });
+}
+function daysWith(reports, outcome) {
+  const days = reports.filter((r) => r.outcome === outcome).map((r) => r.label);
+  return days.length > 0 ? days.join(", ") : null;
+}
+function lastErrorOf(home, segments) {
+  const errors = segments.map((s) => readMeta(home, s.host, s.sessionId)?.lastError).filter((e) => typeof e === "string" && e.length > 0);
+  return errors[0] ?? "not sent";
+}
+function printDays(ctx, reports, mapping, error) {
+  const lines = [
+    [daysWith(reports, "moved"), (d) => `Moved to ${describeMapping(mapping)}: ${d}.`],
+    [
+      daysWith(reports, "kept"),
+      (d) => `Left where they were, already accepted: ${d}. Change those on their time entries.`
+    ],
+    [
+      daysWith(reports, "unsent"),
+      (d) => `Not sent yet (${error}): ${d}. They are sent with the next prompt.`
+    ],
+    [daysWith(reports, "old"), (d) => `Too old to move: ${d}.`]
+  ];
+  for (const [days, line] of lines) {
+    if (days) {
+      ctx.rt.out(line(days));
+    }
+  }
+}
+async function applyWholeSession(ctx, segments, current, target, listDays) {
+  const { home, now } = ctx;
+  const before = segments.map((s) => readMeta(home, s.host, s.sessionId) ?? s);
+  for (const segment of segments) {
+    retarget(home, segment, target, now);
+  }
+  if (target.mapping) {
+    await send(ctx, current);
+  }
+  const reports = target.mapping ? reportDays(home, segments, target.mapping, now) : [];
+  const error = lastErrorOf(home, segments);
+  if (target.mapping && reports.some((r) => r.outcome === "refused")) {
+    for (const meta of before) {
+      const was2 = {
+        choice: meta.choice ?? null,
+        mapping: meta.mapping,
+        untrackedReason: meta.untrackedReason
+      };
+      retarget(home, meta, was2, now);
+    }
+    await send(ctx, current);
+    const was = current.mapping ? describeMapping(current.mapping) : "what it was";
+    ctx.rt.err(
+      `Time Trakkr refused ${describeMapping(target.mapping)}: ${error}. Nothing has changed; the session stays on ${was}.`
+    );
+    return 1;
+  }
+  ctx.rt.out(`This session is now tracked to ${describeTargetOf(target)}.`);
+  if (listDays && target.mapping) {
+    printDays(ctx, reports, target.mapping, error);
+  }
+  return 0;
+}
+function turnIsOpen(home, meta, now) {
+  const last = readLog(home, meta.host, meta.sessionId).events.at(-1);
+  return last !== void 0 && last.kind !== "turn_end" && last.at > now - STALE_SESSION_MS;
+}
+async function applyFromNow(ctx, segments, current, target) {
+  const { home, now } = ctx;
+  const rootId = rootIdOf(current);
+  const nextId = nextSegmentId(segments, rootId);
+  if (nextId === null) {
+    ctx.rt.err(
+      "This session id is too long to split into parts. Nothing has changed. Use --whole-session instead."
+    );
+    return 1;
+  }
+  const open = turnIsOpen(home, current, now);
+  if (open) {
+    appendEvent(home, current.host, current.sessionId, { kind: "turn_end", at: now });
+  }
+  const part = {
+    ...current,
+    sessionId: nextId,
+    segmentOf: rootId,
+    segment: null,
+    choice: target.choice,
+    mapping: target.mapping,
+    untrackedReason: target.mapping ? null : target.untrackedReason,
+    offered: null,
+    estimate: null,
+    posted: {},
+    syncedBytes: 0,
+    unsent: false,
+    lastError: null,
+    updatedAt: now
+  };
+  writeMeta(home, part);
+  startSegmentTokens(home, current.host, current.sessionId, nextId);
+  if (open) {
+    appendEvent(home, current.host, nextId, { kind: "turn_start", at: now });
+  }
+  const root = readMeta(home, current.host, rootId) ?? current;
+  const rootIsCurrent = root.sessionId === current.sessionId;
+  writeMeta(home, { ...root, segment: nextId, unsent: rootIsCurrent || root.unsent });
+  if (!rootIsCurrent) {
+    const latest = readMeta(home, current.host, current.sessionId) ?? current;
+    writeMeta(home, { ...latest, unsent: true });
+  }
+  await send(ctx, current);
+  const was = current.mapping ? describeMapping(current.mapping) : "where it was";
+  ctx.rt.out(
+    `From now on this session's time goes to ${describeTargetOf(target)}, as part ${partOf(part)}. Time recorded so far stays on ${was}.`
+  );
+  return 0;
+}
+
+// packages/agent-cli/src/task-command.ts
+var NEEDS_A_CHOICE = 2;
+function parseArgs(args) {
+  const flags = args.filter((a) => a.startsWith("--"));
+  const words = args.filter((a) => !a.startsWith("--"));
+  const unknown = flags.find((f) => !["--whole-session", "--from-now", "--clear"].includes(f));
+  if (unknown) {
+    return { error: `Unknown option ${oneLine(unknown, 40)}.` };
+  }
+  const whole = flags.includes("--whole-session");
+  const fromNow = flags.includes("--from-now");
+  if (whole && fromNow) {
+    return { error: "Choose one of --whole-session and --from-now, not both." };
+  }
+  const clear = flags.includes("--clear");
+  if (clear && words.length > 0) {
+    return { error: "--clear goes back to the rules or the file; it takes no task." };
+  }
+  return { words, clear, mode: whole ? "whole-session" : fromNow ? "from-now" : null };
+}
+function showTask(rt, session) {
+  const mapping = session.meta?.mapping ?? null;
+  rt.out(`Session: ${HOST_LABELS[session.host]} session ${session.sessionId} (${session.because})`);
+  rt.out(
+    mapping ? `Task:    ${describeWithSource(mapping)}` : `Task:    not tracked (${session.meta?.untrackedReason ?? "nothing recorded for it yet"})`
+  );
+  rt.out('Change it with "timetrakkr task <words>", for example "timetrakkr task acme bug".');
+  if (mapping?.source === "chosen") {
+    rt.out('Go back to the rules or the file with "timetrakkr task --clear".');
+  }
+  return 0;
+}
+async function search(cmd, query) {
+  const first = await fetchTargets(cmd.credentials, query, cmd.signal);
+  if (first.ok || first.status !== 401) {
+    return first;
+  }
+  const renewed = await cmd.auth.renew(cmd.credentials);
+  return renewed ? fetchTargets(renewed, query, cmd.signal) : first;
+}
+function searchFailed(rt, result) {
+  rt.err(result.off ? result.off : `Could not search Time Trakkr's tasks: ${result.error}.`);
+  return 1;
+}
+function stateOf(cmd) {
+  const { session, rt, home } = cmd;
+  const existing = session.meta ?? readMeta(home, session.host, session.sessionId);
+  if (existing) {
+    return existing;
+  }
+  return {
+    ...newMeta(session.host, session.sessionId, rt.cwd),
+    root: findRepositoryRoot(rt.cwd),
+    updatedAt: cmd.now
+  };
+}
+function owned(cmd, meta) {
+  if (meta.identity || meta.credentialId) {
+    return meta;
+  }
+  return {
+    ...meta,
+    identity: identitiesOf(cmd.home, cmd.credentials)[0] ?? null,
+    credentialId: cmd.credentials.cacheId
+  };
+}
+function chosen(option2) {
+  const choice = { projectId: option2.projectId, taskId: option2.taskId, label: option2.label };
+  return {
+    choice,
+    mapping: { ...choice, mappingId: null, source: "chosen", label: option2.label },
+    untrackedReason: null
+  };
+}
+async function pick(cmd, n) {
+  const offered = stateOf(cmd).offered;
+  const option2 = offered?.options[n - 1];
+  if (!offered || !option2) {
+    cmd.rt.err(`There is no task ${n} in the last list. Run "timetrakkr task <words>" to search.`);
+    return 1;
+  }
+  const again = await search(cmd, offered.query);
+  if (!again.ok) {
+    return searchFailed(cmd.rt, again);
+  }
+  const still = again.options.some(
+    (o) => o.projectId === option2.projectId && o.taskId === option2.taskId
+  );
+  if (!still) {
+    cmd.rt.err(`${option2.label} is no longer a task you can log time to. Nothing has changed.`);
+    return 1;
+  }
+  return chosen(option2);
+}
+async function find(cmd, words) {
+  const query = words.join(" ");
+  const found = await search(cmd, query);
+  if (!found.ok) {
+    return searchFailed(cmd.rt, found);
+  }
+  const [only, ...others] = found.options;
+  if (!only) {
+    cmd.rt.err(`No task you can log time to matches "${oneLine(query)}".`);
+    return 1;
+  }
+  if (others.length === 0) {
+    return chosen(only);
+  }
+  writeMeta(cmd.home, { ...stateOf(cmd), offered: { query, options: found.options } });
+  cmd.rt.out(`${found.options.length} tasks match "${oneLine(query)}":`);
+  found.options.forEach((option2, i) => cmd.rt.out(`  ${i + 1}. ${option2.label}`));
+  if (found.hasMore) {
+    cmd.rt.out("More projects match than are shown here.");
+  }
+  cmd.rt.out(
+    'Nothing has changed. Run "timetrakkr task <number>" to choose one, or add words to narrow the search.'
+  );
+  return NEEDS_A_CHOICE;
+}
+async function ruleTarget(cmd, meta) {
+  const { rt, home, credentials, now, signal, auth } = cmd;
+  const local = readLocalContext(meta.cwd || rt.cwd, rt.env);
+  const config = couldBeTracked(local) ? await getConfig(home, credentials, now, signal, auth.renew) : null;
+  const rules = config?.ok ? config.mappings : lastKnownMappings(home, credentials);
+  const context = resolveContext(local, rules, { ok: true, credentials });
+  return { choice: null, mapping: context.mapping, untrackedReason: context.untrackedReason };
+}
+function printOptions(cmd, args, meta, target) {
+  const again = args.clear ? "timetrakkr task --clear" : `timetrakkr task ${args.words.join(" ")}`;
+  const now = meta.mapping ? describeMapping(meta.mapping) : "where it was";
+  const next = target.mapping ? describeWithSource(target.mapping) : "nothing (not tracked)";
+  const lines = [
+    `This session has already recorded time to ${now}. Nothing has changed.`,
+    "Run it again with one of these. An agent running this must ask the person which one, not choose:",
+    `  ${again} --whole-session`,
+    `      All of this session's time, recorded and to come, goes to ${next}. Days already accepted stay where they are.`,
+    `  ${again} --from-now`,
+    `      Time recorded so far stays on ${now}; time from now on goes to ${next}.`
+  ];
+  for (const line of lines) {
+    cmd.rt.out(line);
+  }
+  return NEEDS_A_CHOICE;
+}
+async function apply(cmd, args, target) {
+  const { home, session } = cmd;
+  const current = owned(cmd, stateOf(cmd));
+  const segments = session.meta ? segmentsOf(home, current) : [current];
+  const ctx = { ...cmd, renew: cmd.auth.renew };
+  if (!hasRecordedTime(home, segments, current.sessionId)) {
+    return applyWholeSession(ctx, segments, current, target, false);
+  }
+  if (args.mode === null) {
+    return printOptions(cmd, args, current, target);
+  }
+  if (args.mode === "from-now") {
+    return applyFromNow(ctx, segments, current, target);
+  }
+  if (!target.mapping) {
+    cmd.rt.err(
+      `The rules do not track this directory (${target.untrackedReason ?? "no mapping"}), so there is nowhere to move this session's time back to. Nothing has changed.`
+    );
+    return 1;
+  }
+  return applyWholeSession(ctx, segments, current, target, true);
+}
+async function chooseTarget(cmd, args) {
+  if (args.clear) {
+    const meta = cmd.session.meta;
+    if (!meta?.choice) {
+      cmd.rt.out("No task was chosen in this session; it already follows the rules or the file.");
+      return 0;
+    }
+    return ruleTarget(cmd, meta);
+  }
+  const [first] = args.words;
+  return args.words.length === 1 && first && /^\d{1,3}$/.test(first) ? pick(cmd, Number(first)) : find(cmd, args.words);
+}
+async function taskCommand(rt, argv) {
+  const args = parseArgs(argv);
+  if ("error" in args) {
+    rt.err(args.error);
+    return 1;
+  }
+  const home = stateHome(rt.env);
+  const session = chooseSession(rt, home);
+  if (!session) {
+    rt.err(NO_SESSION);
+    return 1;
+  }
+  if (!args.clear && args.words.length === 0) {
+    return showTask(rt, session);
+  }
+  const now = rt.now();
+  const signal = AbortSignal.timeout(COMMAND_NETWORK_MS);
+  const auth = authSession(rt, home, now, signal);
+  const credentials = await auth.fresh();
+  if (!credentials.ok) {
+    rt.err(`Not signed in: ${credentials.reason}.`);
+    return 1;
+  }
+  const cmd = {
+    rt,
+    home,
+    now,
+    signal,
+    auth,
+    credentials: credentials.credentials,
+    session
+  };
+  if (!args.clear) {
+    const rule = await ruleTarget(cmd, stateOf(cmd));
+    if (rule.untrackedReason === BLOCKED) {
+      rt.err(
+        `This session cannot be tracked here: ${BLOCKED}. Nothing has changed. Log your own time for this work instead.`
+      );
+      return 1;
+    }
+  }
+  const target = await chooseTarget(cmd, args);
+  if (typeof target === "number") {
+    return target;
+  }
+  const current = session.meta?.mapping;
+  if (target.choice && current?.source === "chosen" && current.projectId === target.choice.projectId && current.taskId === target.choice.taskId) {
+    rt.out(`This session is already tracked to ${describeWithSource(current)}.`);
+    return 0;
+  }
+  return apply(cmd, args, target);
+}
+
 // packages/agent-cli/src/main.ts
 var USAGE2 = [
   "Usage: timetrakkr <command>",
@@ -3173,6 +3718,12 @@ var USAGE2 = [
   "  status              What this directory is tracked to, and whether sign-in works",
   "  off                 Stop tracking the current agent session",
   "  on                  Resume tracking the current agent session",
+  "  task [<words> | <number>] [--whole-session | --from-now] [--clear]",
+  "                      Show or choose the task the current agent session is tracked",
+  "                      to, from the tasks you can log time to. Once the session has",
+  "                      recorded time, add --whole-session to move all of it, or",
+  "                      --from-now to keep what is recorded where it is. --clear",
+  "                      goes back to the rules or .timetrakkr.json.",
   '  estimate --hours <n> --label "<text>"',
   "                      Record how long the agent said a piece of work would take a",
   "                      person or a team. Sent with the session for comparison; never",
@@ -3231,6 +3782,8 @@ async function run(argv, rt) {
         return switchTracking(rt, true);
       case "on":
         return switchTracking(rt, false);
+      case "task":
+        return await taskCommand(rt, rest);
       case "estimate":
         return recordEstimate(rt, rest);
       case "cursor":
